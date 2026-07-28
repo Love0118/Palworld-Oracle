@@ -1,0 +1,20 @@
+[Unit]
+Description=Recover Palworld after repeated liveness failures
+After=palworld-healthcheck.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/palworld/palworld.env
+ExecStart=/usr/local/lib/palworld-oracle/scripts/recover.sh
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/var/lib/palworld/health /var/lib/palworld-admin

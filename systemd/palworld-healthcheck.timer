@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule Palworld liveness checks
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=60s
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

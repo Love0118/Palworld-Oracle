@@ -1,0 +1,23 @@
+[Unit]
+Description=Create a Palworld save backup
+After=palworld.service
+ConditionPathIsDirectory=/var/lib/palworld/Saved
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/palworld/palworld.env
+ExecStart=/usr/local/lib/palworld-oracle/scripts/maintenance-backup.sh
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/var/lib/palworld/Saved
+ReadWritePaths=/var/lib/palworld/backups /var/lib/palworld-admin/maintenance.lock

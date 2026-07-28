@@ -1,0 +1,10 @@
+.env
+*.log
+*.pid
+*.tar.gz
+*.tar.zst
+*.tmp
+__pycache__/
+.pytest_cache/
+build/
+dist/

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for Palworld updates daily
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

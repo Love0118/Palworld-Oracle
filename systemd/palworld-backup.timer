@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule Palworld backups every six hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:15:00
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,50 @@
+[Unit]
+Description=Palworld Dedicated Server on ARM64 via Box64
+Documentation=https://github.com/Love0118/Palworld-Oracle
+ConditionPathExists=!/var/lib/palworld-admin/configure.pending
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=10min
+StartLimitBurst=3
+
+[Service]
+Type=exec
+User=palworld
+Group=palworld
+EnvironmentFile=/etc/palworld/palworld.env
+LoadCredential=admin-password:/etc/palworld/credentials/admin-password
+ExecStart=/usr/local/lib/palworld-oracle/scripts/run-server.sh
+ExecStop=/usr/local/lib/palworld-oracle/scripts/graceful-stop.sh
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=180s
+TimeoutStopSec=180s
+KillMode=control-group
+KillSignal=SIGINT
+OOMPolicy=stop
+UMask=0027
+LimitNOFILE=1048576
+LimitCORE=0
+CacheDirectory=palworld
+CacheDirectoryMode=0750
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/palworld/home /var/lib/palworld/Saved /var/cache/palworld
+
+# MemoryDenyWriteExecute must remain disabled: Box64 DynaRec is a JIT.
+
+[Install]
+WantedBy=multi-user.target
