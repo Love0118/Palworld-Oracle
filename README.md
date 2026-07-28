@@ -13,6 +13,7 @@ ARM64 네이티브 DepotDownloader가 게임 파일을 받고, Box64 DynaRec이 
 - 실행 중인 릴리스와 다운로드 작업공간 분리
 - 정상 저장/종료 후 원자적 릴리스 전환
 - REST 상태 검사, 6시간 백업, 일일 업데이트 검사
+- ARM64 네이티브 C++ 성능 관측과 Prometheus textfile
 
 Palworld의 공식 ARM64 서버 바이너리가 아니라 Box64 변환 실행 방식이므로, 목표 동접과 월드 크기는 실제 부하 테스트로 확정해야 합니다.
 
@@ -49,7 +50,11 @@ sudo palworldctl configure \
   --players 16
 ```
 
-게임 포트 `8211/udp`만 필요한 네트워크에 개방합니다. REST 포트 `8212/tcp`는 공인 인터넷에 노출하지 마세요. 기본 운영 도구는 `127.0.0.1:8212`로 접속합니다.
+설치기는 전용 iptables chain에서 게임 포트 `8211/udp`의 허용 규칙을
+관리합니다. 호스트 전체의 default-deny 정책을 만들거나 REST를 직접
+차단하지는 않습니다. Oracle Cloud Security List/NSG와 호스트 방화벽에서
+게임 UDP만 허용하고 `8212/tcp`는 공인 인터넷에서 반드시 차단하세요.
+기본 운영 도구는 `127.0.0.1:8212`로 접속합니다.
 
 ## 관리 명령
 
@@ -59,9 +64,15 @@ sudo palworldctl logs
 sudo palworldctl metrics
 sudo palworldctl backup
 sudo palworldctl update
+sudo palworldctl profile show
+sudo palworldctl profile apply
 sudo palworldctl doctor
 sudo palworldctl restart
 ```
+
+`profile apply`는 실행 중인 서버를 정상 종료하고 cold backup을 만든 뒤,
+ARM 균형 프로필을 원자적으로 적용합니다. 재시작한 서버가 정확한 값을
+REST로 보고하지 않으면 이전 설정을 자동 복원합니다.
 
 게임 밸런스와 월드 제한은 다음 파일에서 관리합니다.
 
@@ -86,6 +97,7 @@ sudo palworldctl restart
 /var/lib/palworld/home/            # 게임 계정 HOME
 /var/lib/palworld-admin/           # root 소유 유지보수 상태와 잠금
 /var/lib/palworld-updater/worktree # 실행과 분리된 다운로드 작업공간
+/var/lib/palworld-observer/         # 네이티브 관측기 textfile 상태
 /var/cache/palworld/               # Box64 DynaCache, 백업 제외
 /etc/palworld/                     # 운영 설정과 관리자 credential
 ```
@@ -111,6 +123,9 @@ PALWORLD_WORKER_THREADS=
 - [설정 및 Box64 프로필](docs/CONFIGURATION.md)
 - [백업·업데이트·복구 운영](docs/OPERATIONS.md)
 - [성능 벤치마크](docs/BENCHMARK.md)
+- [네이티브 최적화와 서버 모드 경계](docs/NATIVE_OPTIMIZATION.md)
+- [원거리 거점·운반·드롭 병합 실험 설계](docs/AWAY_BASE_OPTIMIZATION.md)
+- [기본 비활성 AwayBaseOptimizer 서버 모드](mods/AwayBaseOptimizer/README.md)
 
 ## 주의사항
 

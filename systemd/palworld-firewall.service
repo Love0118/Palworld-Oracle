@@ -1,0 +1,29 @@
+[Unit]
+Description=Allow the Palworld game UDP port
+Documentation=https://github.com/Love0118/Palworld-Oracle
+DefaultDependencies=no
+Wants=network-pre.target
+After=local-fs.target
+Before=network-pre.target palworld.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/palworld/palworld.env
+ExecStart=/usr/local/lib/palworld-oracle/scripts/configure-firewall.sh
+RemainAfterExit=yes
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target

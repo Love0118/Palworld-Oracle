@@ -13,6 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install checks
-        run: sudo apt-get update && sudo apt-get install -y ripgrep shellcheck
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake ripgrep shellcheck
       - name: Validate scripts and settings editor
         run: PALWORLD_RUN_ROOT_TESTS=1 make check

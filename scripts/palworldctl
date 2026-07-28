@@ -18,6 +18,7 @@ Commands:
   backup                     Create a backup through systemd.
   update                     Stage and activate an update.
   configure [options]        Configure REST/admin password and basic settings.
+  profile <show|apply>       Show or atomically apply the ARM-balanced profile.
   doctor                     Validate the host and installation.
   release                    Print the active immutable release.
   settings                   Print the live PalWorldSettings.ini path.
@@ -51,6 +52,9 @@ case "$command_name" in
     ;;
   configure)
     "$SCRIPT_DIR/configure-server.sh" "$@"
+    ;;
+  profile)
+    "$SCRIPT_DIR/apply-server-profile.sh" "$@"
     ;;
   doctor)
     "$SCRIPT_DIR/doctor.sh"

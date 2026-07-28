@@ -1,0 +1,2 @@
+[/Script/Pal.PalGameWorldSettings]
+OptionSettings=(ServerName="[NONPRODUCTION UE4SS BOX64 LAB]",ServerDescription="Disposable compatibility test only",AdminPassword="@ADMIN_PASSWORD@",ServerPassword="@SERVER_PASSWORD@",ServerPlayerMaxNum=4,PublicPort=@GAME_PORT@,PublicIP="127.0.0.1",bIsUseBackupSaveData=True,RESTAPIEnabled=True,RESTAPIPort=@REST_PORT@,bShowPlayerList=False,LogFormatType=Json)

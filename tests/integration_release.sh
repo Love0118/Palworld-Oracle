@@ -20,17 +20,20 @@ backup_root="$test_root/state/backups"
 health_root="$test_root/state/health"
 config_file="$test_root/palworld.env"
 fake_downloader="$test_root/DepotDownloader"
-test_user="$(id -un)"
-test_group="$(id -gn)"
+fake_bin="$test_root/bin"
+test_user=nobody
+test_group="$(id -gn "$test_user")"
+admin_user="$(id -un)"
+admin_group="$(id -gn)"
 
 cat > "$config_file" <<EOF
 PALWORLD_USER=$test_user
 PALWORLD_GROUP=$test_group
-PALWORLD_UPDATER_USER=$test_user
-PALWORLD_UPDATER_GROUP=$test_group
-PALWORLD_BACKUP_USER=$test_user
-PALWORLD_BACKUP_GROUP=$test_group
-PALWORLD_OPS_GROUP=$test_group
+PALWORLD_UPDATER_USER=$admin_user
+PALWORLD_UPDATER_GROUP=$admin_group
+PALWORLD_BACKUP_USER=$admin_user
+PALWORLD_BACKUP_GROUP=$admin_group
+PALWORLD_OPS_GROUP=$admin_group
 PALWORLD_ROOT=$runtime_root
 PALWORLD_SERVER_DIR=$runtime_root/current
 PALWORLD_RELEASES_DIR=$runtime_root/releases
@@ -83,6 +86,18 @@ fi
 EOF
 chmod 0755 "$fake_downloader"
 
+mkdir -p "$fake_bin"
+cat > "$fake_bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == is-active ]]; then
+  exit 3
+fi
+exit 0
+EOF
+chmod 0755 "$fake_bin/systemctl"
+export PATH="$fake_bin:$PATH"
+
+chmod 0755 "$test_root"
 mkdir -p "$runtime_root/staging" "$updater_root" "$saved_root" "$backup_root" "$health_root"
 PALWORLD_CONFIG_FILE="$config_file" "$PROJECT_ROOT/scripts/update-server.sh"
 [[ -s "$updater_root/pending-release" ]]
@@ -92,6 +107,7 @@ PALWORLD_CONFIG_FILE="$config_file" "$PROJECT_ROOT/scripts/activate-release.sh"
 [[ -L "$runtime_root/current/Pal/Saved" ]]
 [[ "$(readlink "$runtime_root/current/Pal/Saved")" == "$saved_root" ]]
 [[ -f "$saved_root/Config/LinuxServer/PalWorldSettings.ini" ]]
+runuser -u "$test_user" -- test -r "$saved_root/Config/LinuxServer/PalWorldSettings.ini"
 [[ -f "$runtime_root/current/Pal/Binaries/Linux/steamclient.so" ]]
 [[ -x "$runtime_root/current/Pal/Plugins/Sentry/Binaries/Linux/crashpad_handler" ]]
 

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/away-base-lab/config.schema.json",
+  "title": "AwayBaseLab candidate configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "Mode", "ExpectedIdentity", "Candidate", "Safety"],
+  "properties": {
+    "SchemaVersion": { "const": 1 },
+    "Mode": { "const": "OBSERVE_ONLY" },
+    "ObserveIntervalMs": { "type": "integer", "minimum": 10000, "default": 60000 },
+    "ExpectedIdentity": {
+      "type": "object",
+      "required": ["GameVersion", "SteamBuildId", "PalServerSha256", "PalServerElfBuildId", "ReUe4ssLinuxVersion", "ReUe4ssSourceCommit"],
+      "properties": {
+        "GameVersion": { "const": "1.0.1.100619" },
+        "SteamBuildId": { "const": "24181105" },
+        "PalServerSha256": { "const": "788649fa1592160faa7bcf07ccd16d474ebeaae954717bc32284b5a43028d8e7" },
+        "PalServerElfBuildId": { "const": "7f7e167407984ec3" },
+        "ReUe4ssLinuxVersion": { "const": "linux-v0.1.0" },
+        "ReUe4ssSourceCommit": { "const": "5d33654755efed844336497e8a9a15e6716b5d6c" }
+      }
+    },
+    "Candidate": {
+      "type": "object",
+      "required": ["MergeDropItemRangeCm", "Middle", "Far", "AwayGraceSec", "WakeHysteresisSec"],
+      "properties": {
+        "MergeDropItemRangeCm": { "type": "number", "const": 500.0 },
+        "Middle": {
+          "type": "object",
+          "required": ["TickIntervalSec", "bMergeDropItems", "bUpdateSimple"],
+          "properties": {
+            "TickIntervalSec": { "type": "number", "minimum": 2.0, "maximum": 5.0, "default": 3.0 },
+            "bMergeDropItems": { "const": true },
+            "bUpdateSimple": { "const": false }
+          }
+        },
+        "Far": {
+          "type": "object",
+          "required": ["TickIntervalSec", "bMergeDropItems", "bUpdateSimple"],
+          "properties": {
+            "TickIntervalSec": { "type": "number", "minimum": 5.0, "maximum": 10.0, "default": 7.5 },
+            "bMergeDropItems": { "const": true },
+            "bUpdateSimple": { "const": true }
+          }
+        },
+        "AwayGraceSec": { "type": "number", "minimum": 60.0, "default": 60.0 },
+        "WakeHysteresisSec": { "type": "number", "minimum": 3.0, "maximum": 10.0, "default": 5.0 }
+      }
+    },
+    "Safety": {
+      "type": "object",
+      "required": ["MutationRequested", "NestedStructWriteVerified"],
+      "properties": {
+        "MutationRequested": { "const": false },
+        "NestedStructWriteVerified": { "const": false }
+      }
+    }
+  }
+}

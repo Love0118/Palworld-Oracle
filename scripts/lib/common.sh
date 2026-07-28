@@ -63,6 +63,8 @@ load_config() {
   : "${PALWORLD_UPDATER_GROUP:=palworld-updater}"
   : "${PALWORLD_BACKUP_USER:=palworld-backup}"
   : "${PALWORLD_BACKUP_GROUP:=palworld-backup}"
+  : "${PALWORLD_OBSERVER_USER:=palworld-observer}"
+  : "${PALWORLD_OBSERVER_GROUP:=palworld-observer}"
   : "${PALWORLD_OPS_GROUP:=palworld-ops}"
   : "${PALWORLD_ROOT:=/opt/palworld}"
   : "${PALWORLD_SERVER_DIR:=$PALWORLD_ROOT/current}"
@@ -101,6 +103,8 @@ load_config() {
   : "${PALWORLD_ALLOW_UNSAFE_PATHS:=false}"
   : "${PALWORLD_POST_START_GRACE_SECONDS:=20}"
   : "${PALWORLD_POST_START_TIMEOUT_SECONDS:=120}"
+  : "${PALWORLD_OBSERVER_INTERVAL_SECONDS:=10}"
+  : "${PALWORLD_OBSERVER_OUTPUT:=/var/lib/palworld-observer/palworld.prom}"
   : "${BOX64_BIN:=/usr/local/bin/box64}"
   : "${DEPOT_DOWNLOADER_BIN:=$PALWORLD_ROOT/tools/depotdownloader/current/DepotDownloader}"
 
@@ -159,6 +163,7 @@ validate_config_paths() {
   validate_descendant_path PALWORLD_MAINTENANCE_LOCK "$PALWORLD_MAINTENANCE_LOCK" /var/lib
   validate_descendant_path PALWORLD_UPDATE_LOCK "$PALWORLD_UPDATE_LOCK" /var/lib
   validate_descendant_path PALWORLD_ADMIN_PASSWORD_FILE "$PALWORLD_ADMIN_PASSWORD_FILE" /etc/palworld
+  validate_descendant_path PALWORLD_OBSERVER_OUTPUT "$PALWORLD_OBSERVER_OUTPUT" /var/lib
   validate_descendant_path XDG_CACHE_HOME "${XDG_CACHE_HOME:-/var/cache/palworld}" /var/cache
 
   [[ "$PALWORLD_USER:$PALWORLD_GROUP" == palworld:palworld ]] \
@@ -167,6 +172,8 @@ validate_config_paths() {
     || die "The hardened systemd units require the palworld-updater identity"
   [[ "$PALWORLD_BACKUP_USER:$PALWORLD_BACKUP_GROUP" == palworld-backup:palworld-backup ]] \
     || die "The hardened systemd units require the palworld-backup identity"
+  [[ "$PALWORLD_OBSERVER_USER:$PALWORLD_OBSERVER_GROUP" == palworld-observer:palworld-observer ]] \
+    || die "The hardened systemd units require the palworld-observer identity"
   [[ "$PALWORLD_OPS_GROUP" == palworld-ops ]] \
     || die "The hardened systemd units require PALWORLD_OPS_GROUP=palworld-ops"
   [[ "$root" == /opt/palworld \
@@ -179,6 +186,7 @@ validate_config_paths() {
     && "$(normalized_path "$PALWORLD_UPDATE_LOCK")" == /var/lib/palworld-admin/update.lock \
     && "$(normalized_path "$PALWORLD_UPDATER_STATE_DIR")" == /var/lib/palworld-updater \
     && "$(normalized_path "$PALWORLD_ADMIN_PASSWORD_FILE")" == /etc/palworld/credentials/admin-password \
+    && "$(normalized_path "$PALWORLD_OBSERVER_OUTPUT")" == /var/lib/palworld-observer/palworld.prom \
     && "$(normalized_path "${XDG_CACHE_HOME:-/var/cache/palworld}")" == /var/cache/palworld ]] \
     || die "Managed paths are fixed to the hardened layout; use bind mounts for separate storage."
 }
@@ -250,9 +258,14 @@ rest_request() {
     --request "$method"
     --header 'Accept: application/json'
   )
-  if [[ -n "$body" ]]; then
-    args+=(--header 'Content-Type: application/json' --data "$body")
-  fi
+  case "$method" in
+    POST|PUT|PATCH)
+      # Palworld rejects an empty POST without an explicit Content-Length.
+      # --data-raw sends Content-Length: 0 for bodyless actions such as /save
+      # and does not interpret a leading @ in JSON as a local filename.
+      args+=(--header 'Content-Type: application/json' --data-raw "$body")
+      ;;
+  esac
 
   if curl "${args[@]}" "$(rest_url "$endpoint")"; then
     result=0

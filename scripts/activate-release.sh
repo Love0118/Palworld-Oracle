@@ -55,6 +55,7 @@ IFS= read -r metadata_release < "$stage_dir/.palworld-oracle-release"
 
 install -d -o "$PALWORLD_USER" -g "$PALWORLD_GROUP" -m 0750 \
   "$PALWORLD_SAVED_DIR" \
+  "$PALWORLD_SAVED_DIR/Config" \
   "$PALWORLD_SAVED_DIR/Config/LinuxServer"
 
 stage_saved="$stage_dir/Pal/Saved"

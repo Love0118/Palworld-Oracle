@@ -71,6 +71,7 @@ apt-get install -y --no-install-recommends \
   curl \
   file \
   jq \
+  iptables \
   python3 \
   tar \
   unzip \
@@ -107,10 +108,18 @@ fi
 if ! getent group "$PALWORLD_OPS_GROUP" >/dev/null; then
   groupadd --system "$PALWORLD_OPS_GROUP"
 fi
+if ! getent group "$PALWORLD_OBSERVER_GROUP" >/dev/null; then
+  groupadd --system "$PALWORLD_OBSERVER_GROUP"
+fi
 if ! id "$PALWORLD_BACKUP_USER" >/dev/null 2>&1; then
   useradd --system --gid "$PALWORLD_BACKUP_GROUP" \
     --home-dir /var/lib/palworld-backup --create-home \
     --shell /usr/sbin/nologin "$PALWORLD_BACKUP_USER"
+fi
+if ! id "$PALWORLD_OBSERVER_USER" >/dev/null 2>&1; then
+  useradd --system --gid "$PALWORLD_OBSERVER_GROUP" \
+    --home-dir /var/lib/palworld-observer --no-create-home \
+    --shell /usr/sbin/nologin "$PALWORLD_OBSERVER_USER"
 fi
 # Older development installs briefly granted this account supplementary groups.
 # Remove them so the backup reader cannot access REST credentials or locks.
@@ -133,12 +142,19 @@ install -d -o "$PALWORLD_UPDATER_USER" -g "$PALWORLD_UPDATER_GROUP" -m 0750 \
 install -d -o root -g "$PALWORLD_GROUP" -m 0750 /var/lib/palworld
 install -d -o root -g "$PALWORLD_OPS_GROUP" -m 0750 "$PALWORLD_ADMIN_STATE_DIR"
 install -d -o "$PALWORLD_USER" -g "$PALWORLD_GROUP" -m 0750 \
-  "$PALWORLD_HOME" "$PALWORLD_SAVED_DIR" "$PALWORLD_HEALTH_STATE_DIR" /var/cache/palworld
+  "$PALWORLD_HOME" \
+  "$PALWORLD_SAVED_DIR" \
+  "$PALWORLD_SAVED_DIR/Config" \
+  "$PALWORLD_SAVED_DIR/Config/LinuxServer" \
+  "$PALWORLD_HEALTH_STATE_DIR" \
+  /var/cache/palworld
 setfacl -m "g:$PALWORLD_BACKUP_GROUP:--x" /var/lib/palworld
 setfacl -R -m "g:$PALWORLD_BACKUP_GROUP:rX" \
   -m "d:g:$PALWORLD_BACKUP_GROUP:rX" "$PALWORLD_SAVED_DIR"
 install -d -o "$PALWORLD_BACKUP_USER" -g "$PALWORLD_BACKUP_GROUP" -m 0750 \
   "$PALWORLD_BACKUP_DIR"
+install -d -o "$PALWORLD_OBSERVER_USER" -g "$PALWORLD_OBSERVER_GROUP" -m 0750 \
+  /var/lib/palworld-observer
 if [[ ! -f "$PALWORLD_MAINTENANCE_LOCK" ]]; then
   install -o root -g "$PALWORLD_OPS_GROUP" -m 0660 /dev/null "$PALWORLD_MAINTENANCE_LOCK"
 fi
@@ -161,6 +177,9 @@ install -o root -g root -m 0644 \
   "$PROJECT_ROOT/scripts/lib/common.sh" "$libexec/scripts/lib/common.sh"
 install -o root -g root -m 0755 "$PROJECT_ROOT/scripts/palworldctl" /usr/local/bin/palworldctl
 
+PALWORLD_OBSERVER_SOURCE_DIR="$PROJECT_ROOT/native/observer" \
+  "$libexec/scripts/install-observer.sh"
+
 if ! is_true "$skip_box64"; then
   BOX64_VERSION="${BOX64_VERSION:-v0.4.2}" \
   BOX64_SHA256="${BOX64_SHA256:-}" \
@@ -179,11 +198,18 @@ for unit_file in "$PROJECT_ROOT"/systemd/*; do
   install -o root -g root -m 0644 "$unit_file" "/etc/systemd/system/$(basename -- "$unit_file")"
 done
 systemctl daemon-reload
+if systemctl is-active --quiet palworld.service; then
+  systemctl restart palworld-observer.service
+fi
 
 if ! is_true "$skip_download"; then
   "$libexec/scripts/maintenance-update.sh"
 fi
-systemctl enable --now palworld-backup.timer palworld-healthcheck.timer palworld-update.timer
+systemctl enable --now \
+  palworld-firewall.service \
+  palworld-backup.timer \
+  palworld-healthcheck.timer \
+  palworld-update.timer
 
 if is_true "$start_server"; then
   [[ -L "$PALWORLD_SERVER_DIR" ]] || die "Cannot start before a release is installed."

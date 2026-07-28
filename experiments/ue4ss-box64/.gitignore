@@ -1,0 +1,4 @@
+.cache/
+.runtime/
+KILL_SWITCH
+shellcheck-report.txt

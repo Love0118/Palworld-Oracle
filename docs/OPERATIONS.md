@@ -56,4 +56,10 @@ sudo palworldctl metrics
 systemctl list-timers 'palworld-*'
 ```
 
+`palworld-firewall.service`는 재부팅마다 전용 `PALWORLD_ORACLE` chain을
+재구성하고 현재 게임 UDP 포트의 허용 규칙을 적용합니다. 이 unit은 호스트
+전체의 default-deny 정책이나 REST 차단을 대신하지 않습니다. 기존 INPUT
+정책과 클라우드 Security List/NSG에서 `8211/udp`만 공인 ingress로 열고
+REST `8212/tcp`는 명시적으로 차단해야 합니다.
+
 FPS 임계치 미달은 로그 경보만 발생시킵니다. REST liveness 또는 프로세스 상태가 설정된 횟수만큼 연속 실패해야 자동 복구가 실행됩니다. `PALWORLD_RSS_RESTART_MIB=0`은 메모리 임계치 복구가 비활성화된 상태입니다.

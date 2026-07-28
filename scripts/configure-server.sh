@@ -116,8 +116,7 @@ finish_transaction() {
   trap - EXIT
   if is_true "$transaction_started" && ! is_true "$transaction_committed"; then
     if [[ -n "$settings_backup" && -f "$settings_backup" ]]; then
-      install -o "$PALWORLD_USER" -g "$PALWORLD_GROUP" -m 0640 \
-        "$settings_backup" "$live_settings" || true
+      cp --preserve=all -- "$settings_backup" "$live_settings" || true
     fi
     if [[ -n "$config_backup" && -f "$config_backup" ]]; then
       cp -a "$config_backup" "$PALWORLD_CONFIG_FILE" || true
@@ -147,7 +146,7 @@ settings_backup="$(mktemp "$rollback_dir/PalWorldSettings.XXXXXX")"
 config_backup="$(mktemp "$rollback_dir/palworld.env.XXXXXX")"
 chown root:root "$settings_backup" "$config_backup"
 chmod 0600 "$settings_backup" "$config_backup"
-runuser -u "$PALWORLD_USER" -- cat "$live_settings" > "$settings_backup"
+cp --preserve=all -- "$live_settings" "$settings_backup"
 cp -a "$PALWORLD_CONFIG_FILE" "$config_backup"
 printf 'configuration transaction in progress\n' > "$transaction_marker"
 chown root:"$PALWORLD_GROUP" "$transaction_marker"

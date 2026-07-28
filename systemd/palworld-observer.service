@@ -1,0 +1,40 @@
+[Unit]
+Description=Native Palworld performance observer
+Documentation=https://github.com/Love0118/Palworld-Oracle
+After=palworld.service
+PartOf=palworld.service
+
+[Service]
+Type=exec
+User=palworld-observer
+Group=palworld-observer
+EnvironmentFile=/etc/palworld/palworld.env
+LoadCredential=admin-password:/etc/palworld/credentials/admin-password
+ExecStart=/usr/local/lib/palworld-oracle/bin/palworld-observer
+Restart=on-failure
+RestartSec=10s
+StateDirectory=palworld-observer
+StateDirectoryMode=0750
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=
+
+# The observer reads REST/cgroup metrics and writes only its textfile state.
+ReadWritePaths=/var/lib/palworld-observer

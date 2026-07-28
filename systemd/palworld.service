@@ -2,8 +2,9 @@
 Description=Palworld Dedicated Server on ARM64 via Box64
 Documentation=https://github.com/Love0118/Palworld-Oracle
 ConditionPathExists=!/var/lib/palworld-admin/configure.pending
-Wants=network-online.target
-After=network-online.target
+Requires=palworld-firewall.service
+Wants=network-online.target palworld-observer.service
+After=network-online.target palworld-firewall.service
 StartLimitIntervalSec=10min
 StartLimitBurst=3
 

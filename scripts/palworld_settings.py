@@ -45,20 +45,59 @@ def replace_scalar(text: str, key: str, serialized: str) -> str:
 
 def atomic_write(path: Path, content: str) -> None:
     original = path.stat()
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", newline="", dir=path.parent, delete=False
-    ) as handle:
-        temporary = Path(handle.name)
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-
-    os.chmod(temporary, stat.S_IMODE(original.st_mode))
+    original_xattrs = {
+        attribute: os.getxattr(path, attribute, follow_symlinks=False)
+        for attribute in os.listxattr(path, follow_symlinks=False)
+    }
+    temporary: Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="", dir=path.parent, delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+
         os.chown(temporary, original.st_uid, original.st_gid)
-    except PermissionError:
-        pass
-    os.replace(temporary, path)
+        os.chmod(temporary, stat.S_IMODE(original.st_mode))
+        for attribute in os.listxattr(temporary, follow_symlinks=False):
+            if attribute not in original_xattrs:
+                os.removexattr(temporary, attribute, follow_symlinks=False)
+        for attribute, value in original_xattrs.items():
+            os.setxattr(temporary, attribute, value, follow_symlinks=False)
+
+        copied = temporary.stat()
+        copied_xattrs = {
+            attribute: os.getxattr(
+                temporary, attribute, follow_symlinks=False
+            )
+            for attribute in os.listxattr(temporary, follow_symlinks=False)
+        }
+        if (
+            copied.st_uid != original.st_uid
+            or copied.st_gid != original.st_gid
+            or stat.S_IMODE(copied.st_mode) != stat.S_IMODE(original.st_mode)
+            or copied_xattrs != original_xattrs
+        ):
+            raise OSError("temporary settings metadata verification failed")
+
+        metadata_fd = os.open(temporary, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            os.fsync(metadata_fd)
+        finally:
+            os.close(metadata_fd)
+
+        os.replace(temporary, path)
+        temporary = None
+        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,6 +107,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--string-file", action="append", default=[], type=split_assignment)
     parser.add_argument("--bool", action="append", default=[], type=split_assignment)
     parser.add_argument("--int", action="append", default=[], type=split_assignment)
+    parser.add_argument("--float", action="append", default=[], type=split_assignment)
+    parser.add_argument("--enum", action="append", default=[], type=split_assignment)
     return parser.parse_args()
 
 
@@ -92,6 +133,16 @@ def main() -> int:
     for key, value in args.int:
         if not re.fullmatch(r"[0-9]+", value):
             raise ValueError(f"{key} expects a non-negative integer")
+        replacements.append((key, value))
+
+    for key, value in args.float:
+        if not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", value):
+            raise ValueError(f"{key} expects a non-negative decimal number")
+        replacements.append((key, value))
+
+    for key, value in args.enum:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", value):
+            raise ValueError(f"{key} expects an Unreal identifier")
         replacements.append((key, value))
 
     if not replacements:

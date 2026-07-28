@@ -10,6 +10,14 @@
 - 디스크 I/O latency, queue, 여유 공간
 - Box64 오류와 Palworld save 시간
 
+ARM64 네이티브 관측기의 최신 Prometheus textfile은 다음 경로에 있습니다.
+
+```text
+/var/lib/palworld-observer/palworld.prom
+```
+
+원시 표본과 경고는 `journalctl -u palworld-observer.service`에서 확인합니다.
+
 ## 권장 매트릭스
 
 1. 기본값: legacy performance 인수 없음
