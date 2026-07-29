@@ -1,9 +1,10 @@
 # Discord 관리 봇
 
-Discord 봇은 등록한 길드와 채널에서만 두 개의 slash command를 제공합니다.
+Discord 봇은 등록한 길드와 채널에서만 세 개의 slash command를 제공합니다.
 
 - `/pal status`: 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
 - `/pal restart confirm:True`: 업데이트 확인 후 안전한 서버 재기동
+- `/pal log-channel channel:#채널`: 관리 명령 기록을 남길 채널 지정
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
 `serverfps`를 **TPS 대체 지표**로 명시해 표시합니다. 봇은 네이티브 observer가
@@ -46,6 +47,22 @@ sudo palworldctl discord configure \
 sudo palworldctl discord status
 sudo palworldctl discord logs
 ```
+
+## 명령 로그 채널
+
+Discord 서버 소유자 또는 Administrator가 관리 채널에서 다음 명령을 실행하면
+설정이 재기동 후에도 유지됩니다. 재기동 전용 관리 역할만 가진 사용자는 로그
+목적지를 변경할 수 없습니다.
+
+```text
+/pal log-channel channel:#서버-로그
+```
+
+봇에 대상 채널의 채널 보기, 메시지 보내기, embed 링크 권한이 있어야 합니다.
+이후 관리 명령을 사용할 때 명령어, 실행자 ID, 실행 채널, 결과와 시각을 해당
+채널에 기록합니다. 로그 채널이 아직 지정되지 않았거나 Discord 전송이 실패한
+경우에도 systemd journal에는 같은 명령 사용 기록이 남으며, 관리 명령 자체는
+로그 전송 실패와 관계없이 계속 동작합니다.
 
 ## 재기동과 업데이트
 

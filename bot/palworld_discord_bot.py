@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import re
+import secrets
 from pathlib import Path
 
 import discord
@@ -28,6 +29,7 @@ MAINTENANCE_UNIT = "palworld-maintenance-restart.service"
 SYSTEMCTL = "/usr/bin/systemctl"
 READY_PATH = Path("/run/palworld-discord/ready")
 RESTART_REQUEST_PATH = Path("/run/palworld-discord/restart.request")
+LOG_CHANNEL_PATH = Path("/var/lib/palworld-discord/log-channel-id")
 
 
 def required_snowflake(name: str) -> int:
@@ -80,6 +82,66 @@ def write_ready_marker() -> None:
     os.replace(temporary, READY_PATH)
 
 
+def read_log_channel_id() -> int | None:
+    try:
+        descriptor = os.open(
+            LOG_CHANNEL_PATH,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+    except FileNotFoundError:
+        return None
+    try:
+        serialized = os.read(descriptor, 32)
+        if os.read(descriptor, 1):
+            raise ValueError("stored log channel ID is too long")
+    finally:
+        os.close(descriptor)
+
+    value_text = serialized.decode("ascii").strip()
+    if not re.fullmatch(r"[1-9][0-9]{5,18}", value_text):
+        raise ValueError("stored log channel ID is invalid")
+    value = int(value_text)
+    if value >= 2**64:
+        raise ValueError("stored log channel ID is outside the snowflake range")
+    return value
+
+
+def write_log_channel_id(channel_id: int) -> None:
+    temporary = LOG_CHANNEL_PATH.with_name(
+        f".log-channel-id.{os.getpid()}.{secrets.token_hex(8)}"
+    )
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            payload = f"{channel_id}\n".encode("ascii")
+            written = 0
+            while written < len(payload):
+                count = os.write(descriptor, payload[written:])
+                if count == 0:
+                    raise OSError("could not write log channel setting")
+                written += count
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, LOG_CHANNEL_PATH)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+    directory = os.open(
+        LOG_CHANNEL_PATH.parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+    )
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
 GUILD_ID = required_snowflake("PALWORLD_DISCORD_GUILD_ID")
 CHANNEL_ID = required_snowflake("PALWORLD_DISCORD_CHANNEL_ID")
 ADMIN_ROLE_IDS = parse_snowflake_list(
@@ -123,23 +185,38 @@ async def systemctl_properties(unit: str, *properties: str) -> dict[str, str]:
     return result
 
 
-async def interaction_in_scope(interaction: discord.Interaction) -> bool:
+async def interaction_in_scope(
+    interaction: discord.Interaction, command_name: str
+) -> bool:
     if interaction.guild_id != GUILD_ID or interaction.channel_id != CHANNEL_ID:
         await interaction.response.send_message(
             "이 명령어는 등록된 서버 관리 채널에서만 사용할 수 있습니다.",
             ephemeral=True,
         )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "등록된 서버 관리 채널 밖에서 실행했습니다.",
+        )
         return False
     return True
 
 
-def is_restart_admin(interaction: discord.Interaction) -> bool:
+def is_management_admin(interaction: discord.Interaction) -> bool:
     member = interaction.user
     if not isinstance(member, discord.Member):
         return False
     if member.guild_permissions.administrator:
         return True
     return any(role.id in ADMIN_ROLE_IDS for role in member.roles)
+
+
+def is_audit_admin(interaction: discord.Interaction) -> bool:
+    member = interaction.user
+    if not isinstance(member, discord.Member):
+        return False
+    return member.id == member.guild.owner_id or member.guild_permissions.administrator
 
 
 def metric(metrics: dict[str, float], name: str) -> float | None:
@@ -239,8 +316,16 @@ class PalworldClient(discord.Client):
     def __init__(self) -> None:
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
+        self.log_channel_id: int | None = None
 
     async def setup_hook(self) -> None:
+        try:
+            self.log_channel_id = read_log_channel_id()
+        except (OSError, UnicodeError, ValueError):
+            LOGGER.warning(
+                "stored Discord log channel setting is invalid; audit will use journal only"
+            )
+            self.log_channel_id = None
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)
@@ -278,6 +363,23 @@ class PalworldClient(discord.Client):
             LOGGER.error("the bot lacks send-message or embed-link permission")
             await self.close()
             return
+        if self.log_channel_id is not None:
+            log_channel = guild.get_channel(self.log_channel_id)
+            if not isinstance(log_channel, discord.TextChannel):
+                LOGGER.warning(
+                    "configured Discord log channel is unavailable; audit will use journal only"
+                )
+            else:
+                log_permissions = log_channel.permissions_for(member)
+                if not (
+                    log_permissions.view_channel
+                    and log_permissions.send_messages
+                    and log_permissions.embed_links
+                ):
+                    LOGGER.warning(
+                        "configured Discord log channel lacks required permissions; "
+                        "audit will use journal only"
+                    )
         write_ready_marker()
         LOGGER.info("connected as Discord application user %s", self.user)
 
@@ -287,9 +389,96 @@ pal = app_commands.Group(name="pal", description="Palworld 서버 관리")
 restart_in_progress = False
 
 
+async def audit_command(
+    interaction: discord.Interaction,
+    command_name: str,
+    outcome: str,
+    detail: str,
+) -> None:
+    """Record command use without allowing audit failures to break commands."""
+    LOGGER.info(
+        "command_audit interaction_id=%s command=%s outcome=%s user_id=%s "
+        "guild_id=%s channel_id=%s",
+        interaction.id,
+        command_name,
+        outcome,
+        interaction.user.id,
+        interaction.guild_id,
+        interaction.channel_id,
+    )
+    if client.log_channel_id is None:
+        return
+
+    try:
+        guild = client.get_guild(GUILD_ID)
+        if guild is None:
+            raise RuntimeError("configured guild is unavailable")
+        channel = guild.get_channel(client.log_channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            raise RuntimeError("configured log channel is unavailable")
+        member = guild.me
+        if member is None:
+            raise RuntimeError("bot guild membership is unavailable")
+        permissions = channel.permissions_for(member)
+        if not (
+            permissions.view_channel
+            and permissions.send_messages
+            and permissions.embed_links
+        ):
+            raise RuntimeError("configured log channel lacks required permissions")
+
+        colours = {
+            "성공": discord.Colour.green(),
+            "완료": discord.Colour.green(),
+            "요청됨": discord.Colour.blue(),
+            "진행 중": discord.Colour.blue(),
+            "취소됨": discord.Colour.orange(),
+            "거부됨": discord.Colour.orange(),
+            "실패": discord.Colour.red(),
+        }
+        actor_name = discord.utils.escape_markdown(
+            discord.utils.escape_mentions(interaction.user.display_name)
+        )
+        embed = discord.Embed(
+            title="Palworld 관리 명령 기록",
+            description=detail,
+            colour=colours.get(outcome, discord.Colour.light_grey()),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="명령어", value=f"`{command_name}`", inline=True)
+        embed.add_field(name="결과", value=outcome, inline=True)
+        embed.add_field(name="요청 ID", value=f"`{interaction.id}`", inline=False)
+        embed.add_field(
+            name="실행자",
+            value=f"{actor_name} (`{interaction.user.id}`)",
+            inline=False,
+        )
+        embed.add_field(
+            name="실행 채널",
+            value=(
+                f"<#{interaction.channel_id}> (`{interaction.channel_id}`)"
+                if interaction.channel_id is not None
+                else "알 수 없음"
+            ),
+            inline=False,
+        )
+        await asyncio.wait_for(
+            channel.send(
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions.none(),
+            ),
+            timeout=10,
+        )
+    except Exception as error:
+        LOGGER.warning(
+            "Discord command audit delivery failed (%s); journal record retained",
+            type(error).__name__,
+        )
+
+
 @pal.command(name="status", description="서버 CPU, RAM, 접속자와 성능 상태를 확인합니다.")
 async def status_command(interaction: discord.Interaction) -> None:
-    if not await interaction_in_scope(interaction):
+    if not await interaction_in_scope(interaction, "/pal status"):
         return
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
@@ -299,8 +488,14 @@ async def status_command(interaction: discord.Interaction) -> None:
         await interaction.edit_original_response(
             content="서버 상태를 조회하지 못했습니다. 잠시 후 다시 시도해 주세요."
         )
+        await audit_command(
+            interaction, "/pal status", "실패", "서버 상태 조회에 실패했습니다."
+        )
         return
     await interaction.edit_original_response(embed=embed)
+    await audit_command(
+        interaction, "/pal status", "성공", "서버 상태를 조회했습니다."
+    )
 
 
 @pal.command(
@@ -312,11 +507,17 @@ async def restart_command(
     interaction: discord.Interaction, confirm: bool
 ) -> None:
     global restart_in_progress
-    if not await interaction_in_scope(interaction):
+    if not await interaction_in_scope(interaction, "/pal restart"):
         return
-    if not is_restart_admin(interaction):
+    if not is_management_admin(interaction):
         await interaction.response.send_message(
             "이 명령어를 실행할 관리 역할이 없습니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            "/pal restart",
+            "거부됨",
+            "관리 권한이 없는 사용자가 실행했습니다.",
         )
         return
     if not confirm:
@@ -324,10 +525,22 @@ async def restart_command(
             "재기동을 취소했습니다. 실행하려면 `confirm`을 True로 선택하세요.",
             ephemeral=True,
         )
+        await audit_command(
+            interaction,
+            "/pal restart",
+            "취소됨",
+            "확인 값이 False여서 재기동을 취소했습니다.",
+        )
         return
     if restart_in_progress:
         await interaction.response.send_message(
             "이미 업데이트 또는 재기동 요청을 처리 중입니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            "/pal restart",
+            "거부됨",
+            "이미 업데이트 또는 재기동을 처리 중입니다.",
         )
         return
 
@@ -352,12 +565,25 @@ async def restart_command(
             await interaction.edit_original_response(
                 content="이미 업데이트 또는 재기동 요청이 대기 중입니다."
             )
+            await audit_command(
+                interaction,
+                "/pal restart",
+                "거부됨",
+                "이미 업데이트 또는 재기동 요청이 대기 중입니다.",
+            )
             return
         try:
             os.write(descriptor, b"restart\n")
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+
+        await audit_command(
+            interaction,
+            "/pal restart",
+            "요청됨",
+            "업데이트 확인과 안전 재기동 요청을 접수했습니다.",
+        )
 
         deadline = asyncio.get_running_loop().time() + COMMAND_TIMEOUT
         seen_start = False
@@ -378,15 +604,33 @@ async def restart_command(
                 await interaction.edit_original_response(
                     content="업데이트 또는 재기동에 실패했습니다. 서버 로그를 확인해 주세요."
                 )
+                await audit_command(
+                    interaction,
+                    "/pal restart",
+                    "실패",
+                    "업데이트 또는 재기동 서비스가 실패했습니다.",
+                )
                 return
             if seen_start and active_state == "inactive":
                 if state.get("Result") == "success":
                     await interaction.edit_original_response(
                         content="업데이트 확인과 서버 재기동이 정상적으로 완료되었습니다."
                     )
+                    await audit_command(
+                        interaction,
+                        "/pal restart",
+                        "완료",
+                        "업데이트 확인과 서버 재기동이 완료되었습니다.",
+                    )
                 else:
                     await interaction.edit_original_response(
                         content="업데이트 또는 재기동에 실패했습니다. 서버 로그를 확인해 주세요."
+                    )
+                    await audit_command(
+                        interaction,
+                        "/pal restart",
+                        "실패",
+                        "업데이트 또는 재기동 서비스가 실패했습니다.",
                     )
                 return
             await asyncio.sleep(2)
@@ -399,6 +643,12 @@ async def restart_command(
                 "확인해 주세요."
             )
         )
+        await audit_command(
+            interaction,
+            "/pal restart",
+            "진행 중",
+            "명령 응답 시간이 끝난 뒤에도 유지보수가 계속 진행 중입니다.",
+        )
     except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
         LOGGER.error("could not request or monitor maintenance: %s", error)
         try:
@@ -409,8 +659,106 @@ async def restart_command(
             await interaction.edit_original_response(
                 content="재기동 서비스를 호출하지 못했습니다."
             )
+        await audit_command(
+            interaction,
+            "/pal restart",
+            "실패",
+            "재기동 서비스를 호출하거나 상태를 확인하지 못했습니다.",
+        )
     finally:
         restart_in_progress = False
+
+
+@pal.command(
+    name="log-channel",
+    description="Palworld 관리 명령 기록을 남길 Discord 채널을 지정합니다.",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(channel="관리 명령 기록을 남길 텍스트 채널")
+async def log_channel_command(
+    interaction: discord.Interaction, channel: discord.TextChannel
+) -> None:
+    if not await interaction_in_scope(interaction, "/pal log-channel"):
+        return
+    if not is_audit_admin(interaction):
+        await interaction.response.send_message(
+            "로그 채널을 변경할 관리 권한이 없습니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            "/pal log-channel",
+            "거부됨",
+            "관리 권한이 없는 사용자가 로그 채널 변경을 시도했습니다.",
+        )
+        return
+    if channel.guild.id != GUILD_ID:
+        await interaction.response.send_message(
+            "현재 Discord 서버의 텍스트 채널만 지정할 수 있습니다.",
+            ephemeral=True,
+        )
+        await audit_command(
+            interaction,
+            "/pal log-channel",
+            "거부됨",
+            "다른 Discord 서버의 채널을 지정했습니다.",
+        )
+        return
+
+    member = channel.guild.me
+    permissions = channel.permissions_for(member) if member is not None else None
+    if permissions is None or not (
+        permissions.view_channel
+        and permissions.send_messages
+        and permissions.embed_links
+    ):
+        await interaction.response.send_message(
+            "봇이 해당 채널을 보고 메시지와 embed를 보낼 권한이 필요합니다.",
+            ephemeral=True,
+        )
+        await audit_command(
+            interaction,
+            "/pal log-channel",
+            "거부됨",
+            "대상 채널에서 봇 권한이 부족합니다.",
+        )
+        return
+
+    previous_channel_id = client.log_channel_id
+    try:
+        write_log_channel_id(channel.id)
+    except OSError:
+        LOGGER.error("could not persist Discord log channel setting")
+        await interaction.response.send_message(
+            "로그 채널 설정을 저장하지 못했습니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            "/pal log-channel",
+            "실패",
+            "로그 채널 설정을 저장하지 못했습니다.",
+        )
+        return
+
+    client.log_channel_id = channel.id
+    LOGGER.info(
+        "audit_channel_change interaction_id=%s actor_id=%s old_channel_id=%s "
+        "new_channel_id=%s",
+        interaction.id,
+        interaction.user.id,
+        previous_channel_id,
+        channel.id,
+    )
+    await interaction.response.send_message(
+        f"{channel.mention} 채널을 관리 명령 로그 채널로 설정했습니다.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+    await audit_command(
+        interaction,
+        "/pal log-channel",
+        "성공",
+        "이 채널을 새 관리 명령 로그 채널로 설정했습니다.",
+    )
 
 
 client.tree.add_command(pal)

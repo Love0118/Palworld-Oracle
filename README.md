@@ -84,8 +84,9 @@ REST로 보고하지 않으면 이전 설정을 자동 복원합니다.
 
 설정 변경 후에는 서버를 재시작해야 합니다.
 
-Discord에서 `/pal status`와 업데이트 포함 `/pal restart`를 사용하려면 bot
-token, 길드·채널·관리 역할 ID를 별도로 등록합니다. 자세한 절차와 권한 경계는
+Discord에서 `/pal status`, 업데이트 포함 `/pal restart`, 명령 기록용
+`/pal log-channel`을 사용하려면 bot token, 길드·채널·관리 역할 ID를 별도로
+등록합니다. 자세한 절차와 권한 경계는
 [Discord 관리 봇](docs/DISCORD_BOT.md)을 참고하세요.
 
 ## 데이터 및 릴리스 구조
