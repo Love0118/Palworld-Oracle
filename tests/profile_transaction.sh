@@ -124,7 +124,7 @@ case "${PALWORLD_TEST_REST_MODE:-mismatch}" in
     printf '{}\n'
     ;;
   success)
-    printf '%s\n' '{"bEnableInvaderEnemy":false,"CollectionDropRate":1.8,"CollectionObjectRespawnSpeedRate":2.0,"DropItemMaxNum":2100,"DropItemAliveMaxHours":0.5,"DeathPenalty":"None","PhysicsActiveDropItemMaxNum":500,"BaseCampMaxNum":64,"BaseCampMaxNumInGuild":10,"MaxBuildingLimitNum":10000,"ServerReplicatePawnCullDistance":12000.0,"ItemContainerForceMarkDirtyInterval":2.0}'
+    printf '%s\n' '{"bEnableInvaderEnemy":false,"bIsPvP":false,"bEnablePlayerToPlayerDamage":false,"bEnableDefenseOtherGuildPlayer":false,"bEnableFriendlyFire":false,"ExpRate":1.5,"CollectionDropRate":2.0,"EnemyDropItemRate":2.0,"CollectionObjectRespawnSpeedRate":2.5,"PalEggDefaultHatchingTime":0.111111,"PalStomachDecreaceRate":0.5,"WorkSpeedRate":2.0,"ItemWeightRate":0.5,"DropItemMaxNum":2100,"DropItemAliveMaxHours":0.5,"DeathPenalty":"None","PhysicsActiveDropItemMaxNum":500,"BaseCampMaxNum":64,"BaseCampMaxNumInGuild":10,"BaseCampWorkerMaxNum":15,"MaxBuildingLimitNum":10000,"ServerReplicatePawnCullDistance":12000.0,"ItemContainerForceMarkDirtyInterval":2.0}'
     ;;
   *)
     printf 'unsupported fake REST mode: %s\n' "$PALWORLD_TEST_REST_MODE" >&2
@@ -153,7 +153,7 @@ write_settings() {
   local destination="$1"
   cat > "$destination" <<'EOF'
 [/Script/Pal.PalGameWorldSettings]
-OptionSettings=(ServerName="Transaction Test",bEnableInvaderEnemy=True,CollectionDropRate=1.000000,CollectionObjectRespawnSpeedRate=1.000000,DropItemMaxNum=3000,DropItemAliveMaxHours=1.000000,DeathPenalty=Item,PhysicsActiveDropItemMaxNum=1000,BaseCampMaxNum=128,BaseCampMaxNumInGuild=4,MaxBuildingLimitNum=0,ServerReplicatePawnCullDistance=15000.000000,ItemContainerForceMarkDirtyInterval=1.000000)
+OptionSettings=(ServerName="Transaction Test",bEnableInvaderEnemy=True,bIsPvP=False,bEnablePlayerToPlayerDamage=False,bEnableDefenseOtherGuildPlayer=False,bEnableFriendlyFire=False,ExpRate=1.000000,CollectionDropRate=1.000000,EnemyDropItemRate=1.000000,CollectionObjectRespawnSpeedRate=1.000000,PalEggDefaultHatchingTime=1.000000,PalStomachDecreaceRate=1.000000,WorkSpeedRate=1.000000,ItemWeightRate=1.000000,DropItemMaxNum=3000,DropItemAliveMaxHours=1.000000,DeathPenalty=Item,PhysicsActiveDropItemMaxNum=1000,BaseCampMaxNum=128,BaseCampMaxNumInGuild=4,BaseCampWorkerMaxNum=15,MaxBuildingLimitNum=0,ServerReplicatePawnCullDistance=15000.000000,ItemContainerForceMarkDirtyInterval=1.000000)
 EOF
 }
 
@@ -396,14 +396,25 @@ run_success_scenario() {
   fi
   for requested_setting in \
     'bEnableInvaderEnemy=False' \
-    'CollectionDropRate=1.8' \
-    'CollectionObjectRespawnSpeedRate=2.0' \
+    'bIsPvP=False' \
+    'bEnablePlayerToPlayerDamage=False' \
+    'bEnableDefenseOtherGuildPlayer=False' \
+    'bEnableFriendlyFire=False' \
+    'ExpRate=1.5' \
+    'CollectionDropRate=2.0' \
+    'EnemyDropItemRate=2.0' \
+    'CollectionObjectRespawnSpeedRate=2.5' \
+    'PalEggDefaultHatchingTime=0.111111' \
+    'PalStomachDecreaceRate=0.5' \
+    'WorkSpeedRate=2.0' \
+    'ItemWeightRate=0.5' \
     'DropItemMaxNum=2100' \
     'DropItemAliveMaxHours=0.5' \
     'DeathPenalty=None' \
     'PhysicsActiveDropItemMaxNum=500' \
     'BaseCampMaxNum=64' \
     'BaseCampMaxNumInGuild=10' \
+    'BaseCampWorkerMaxNum=15' \
     'MaxBuildingLimitNum=10000' \
     'ServerReplicatePawnCullDistance=12000.0' \
     'ItemContainerForceMarkDirtyInterval=2.0'; do

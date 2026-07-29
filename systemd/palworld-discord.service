@@ -1,0 +1,44 @@
+[Unit]
+Description=Restricted Discord management bot for Palworld
+Documentation=https://github.com/Love0118/Palworld-Oracle
+Wants=network-online.target
+After=network-online.target palworld-observer.service
+ConditionFileNotEmpty=/etc/palworld/credentials/discord-token
+
+[Service]
+Type=exec
+User=palworld-discord
+Group=palworld-discord
+SupplementaryGroups=palworld-observer
+EnvironmentFile=/etc/palworld/discord.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+LoadCredential=discord-token:/etc/palworld/credentials/discord-token
+ExecStart=/usr/local/lib/palworld-oracle/discord-venv/bin/python /usr/local/lib/palworld-oracle/bot/palworld_discord_bot.py
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=60s
+RuntimeDirectory=palworld-discord
+RuntimeDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadOnlyPaths=/var/lib/palworld-observer
+ReadWritePaths=/run/palworld-discord
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Accept fixed Palworld restart requests from the Discord bot
+
+[Path]
+PathExists=/run/palworld-discord/restart.request
+Unit=palworld-maintenance-restart.service
+
+[Install]
+WantedBy=multi-user.target

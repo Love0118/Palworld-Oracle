@@ -1,0 +1,81 @@
+# Discord 관리 봇
+
+Discord 봇은 등록한 길드와 채널에서만 두 개의 slash command를 제공합니다.
+
+- `/pal status`: 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
+- `/pal restart confirm:True`: 업데이트 확인 후 안전한 서버 재기동
+
+Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
+`serverfps`를 **TPS 대체 지표**로 명시해 표시합니다. 봇은 네이티브 observer가
+만든 Prometheus 파일만 읽으며 REST 관리자 비밀번호에는 접근하지 않습니다.
+
+## Discord 애플리케이션 준비
+
+Discord Developer Portal에서 애플리케이션과 Bot을 만든 뒤 다음 OAuth2
+scope로 대상 길드에 초대합니다.
+
+```text
+bot
+applications.commands
+```
+
+관리 채널에서 메시지 전송과 embed 링크 권한만 부여하면 됩니다. 메시지 본문을
+읽지 않으므로 Message Content Intent는 필요하지 않습니다. Discord 개발자
+모드를 켜고 길드 ID, 관리 채널 ID, 재기동을 허용할 역할 ID를 복사합니다.
+
+토큰은 명령행에 넣지 말고 root만 읽을 수 있는 한 줄짜리 파일로 준비합니다.
+
+```bash
+sudo install -o root -g root -m 0600 /dev/null /root/discord-token
+sudoedit /root/discord-token
+
+sudo palworldctl discord configure \
+  --token-file /root/discord-token \
+  --guild-id 123456789012345678 \
+  --channel-id 223456789012345678 \
+  --admin-role-id 323456789012345678
+```
+
+`--admin-role-id`는 여러 번 지정할 수 있습니다. Discord의 Administrator
+권한을 가진 사용자도 재기동할 수 있습니다. 설정이 끝나면 원본 토큰 파일은
+안전하게 삭제하고, bot token을 회전할 때 같은 명령으로 다시 구성합니다.
+
+```bash
+sudo palworldctl discord status
+sudo palworldctl discord logs
+```
+
+## 재기동과 업데이트
+
+`/pal restart`는 `confirm=True`가 있어야 실행됩니다. 봇은 전용
+`/run/palworld-discord` 디렉터리에 고정된 요청 파일만 만들 수 있고,
+systemd path unit이 그 파일만 감지해 `palworld-maintenance-restart.service`를
+실행합니다. 봇 계정은 임의 systemd 명령, 게임 계정, 유지보수 그룹, REST
+credential에 접근할 수 없습니다.
+
+재기동 서비스는 다음 순서로 동작합니다.
+
+1. 별도 updater worktree에서 최신 파일을 내려받아 fingerprint를 비교합니다.
+2. 업데이트가 있으면 정상 종료, cold backup, 원자적 릴리스 전환을 수행합니다.
+3. 업데이트가 없으면 현재 릴리스를 정상 종료합니다.
+4. 서버를 한 번만 기동하고 프로세스와 REST health를 검증합니다.
+
+Steam 또는 네트워크 장애로 업데이트 확인 자체가 실패해도 로그에 경고를 남기고
+검증된 현재 릴리스는 예정대로 재기동합니다. 다운로드 실패 중간 산출물을
+활성화하지는 않습니다.
+
+같은 서비스가 매일 한국시간 `05:00`에 systemd timer로 실행됩니다. 05:00에
+업데이트 검사를 시작하므로 큰 다운로드가 있으면 실제 게임 프로세스 재기동은
+다운로드와 검증이 끝난 뒤 시작됩니다. 호스트가 05:00에 꺼져 있었다면
+`Persistent=true` 정책에 따라 다음 부팅 시 누락된 작업을 한 번 수행합니다.
+
+## 상태값과 권한 경계
+
+성능 관측값이 기본 30초보다 오래됐으면 봇은 과거 CPU/RAM/FPS를 현재 값처럼
+표시하지 않습니다. CPU 100%는 논리 코어 하나를 가득 쓴 상태이며, 예를 들어
+`243%`는 약 `2.43`개 코어 사용량입니다. RAM은 호스트 전체가 아니라
+`palworld.service` cgroup 사용량입니다.
+
+봇 token은 `/etc/palworld/credentials/discord-token`에 `root:root 0600`으로
+저장되고 systemd credential로만 전달됩니다. 비밀값을
+`/etc/palworld/discord.env`, Git, Discord 명령 인수에 넣지 마세요.

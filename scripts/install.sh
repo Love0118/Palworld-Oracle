@@ -72,6 +72,7 @@ apt-get install -y --no-install-recommends \
   file \
   jq \
   iptables \
+  python3-venv \
   python3 \
   tar \
   unzip \
@@ -82,6 +83,15 @@ install -d -m 0750 /etc/palworld
 if [[ ! -f /etc/palworld/palworld.env ]]; then
   install -m 0640 "$PROJECT_ROOT/config/palworld.env.example" /etc/palworld/palworld.env
 fi
+if [[ ! -f /etc/palworld/discord.env ]]; then
+  install -m 0644 \
+    "$PROJECT_ROOT/config/palworld-discord.env.example" \
+    /etc/palworld/discord.env
+fi
+[[ -f /etc/palworld/discord.env && ! -L /etc/palworld/discord.env ]] \
+  || die "/etc/palworld/discord.env must be a regular non-symbolic file"
+chown root:root /etc/palworld/discord.env
+chmod 0644 /etc/palworld/discord.env
 PALWORLD_CONFIG_FILE=/etc/palworld/palworld.env
 load_config "$PALWORLD_CONFIG_FILE"
 
@@ -111,6 +121,14 @@ fi
 if ! getent group "$PALWORLD_OBSERVER_GROUP" >/dev/null; then
   groupadd --system "$PALWORLD_OBSERVER_GROUP"
 fi
+if ! getent group palworld-discord >/dev/null; then
+  groupadd --system palworld-discord
+fi
+discord_group_id="$(getent group palworld-discord | awk -F: '{print $3}')"
+if [[ ! "$discord_group_id" =~ ^[0-9]+$ ]] \
+  || (( discord_group_id >= 1000 )); then
+  die "palworld-discord must be a dedicated system group"
+fi
 if ! id "$PALWORLD_BACKUP_USER" >/dev/null 2>&1; then
   useradd --system --gid "$PALWORLD_BACKUP_GROUP" \
     --home-dir /var/lib/palworld-backup --create-home \
@@ -121,6 +139,21 @@ if ! id "$PALWORLD_OBSERVER_USER" >/dev/null 2>&1; then
     --home-dir /var/lib/palworld-observer --no-create-home \
     --shell /usr/sbin/nologin "$PALWORLD_OBSERVER_USER"
 fi
+if ! id palworld-discord >/dev/null 2>&1; then
+  useradd --system --gid palworld-discord \
+    --home-dir /var/lib/palworld-discord --no-create-home \
+    --shell /usr/sbin/nologin palworld-discord
+fi
+discord_user_id="$(id -u palworld-discord)"
+if [[ ! "$discord_user_id" =~ ^[0-9]+$ ]] \
+  || (( discord_user_id >= 1000 )); then
+  die "palworld-discord must be a dedicated system user"
+fi
+usermod --gid palworld-discord \
+  --home /var/lib/palworld-discord \
+  --shell /usr/sbin/nologin \
+  --groups '' \
+  palworld-discord
 # Older development installs briefly granted this account supplementary groups.
 # Remove them so the backup reader cannot access REST credentials or locks.
 gpasswd --delete "$PALWORLD_BACKUP_USER" "$PALWORLD_GROUP" >/dev/null 2>&1 || true
@@ -135,6 +168,15 @@ if [[ ! -f "$PALWORLD_ADMIN_PASSWORD_FILE" ]]; then
     "$(dirname -- "$PALWORLD_ADMIN_PASSWORD_FILE")"
   install -o root -g "$PALWORLD_GROUP" -m 0640 /dev/null "$PALWORLD_ADMIN_PASSWORD_FILE"
 fi
+if [[ ! -f /etc/palworld/credentials/discord-token ]]; then
+  install -o root -g root -m 0600 /dev/null \
+    /etc/palworld/credentials/discord-token
+fi
+[[ -f /etc/palworld/credentials/discord-token \
+  && ! -L /etc/palworld/credentials/discord-token ]] \
+  || die "discord-token must be a regular non-symbolic file"
+chown root:root /etc/palworld/credentials/discord-token
+chmod 0600 /etc/palworld/credentials/discord-token
 
 install -d -o root -g root -m 0755 "$PALWORLD_ROOT" "$PALWORLD_RELEASES_DIR"
 install -d -o "$PALWORLD_UPDATER_USER" -g "$PALWORLD_UPDATER_GROUP" -m 0750 \
@@ -177,6 +219,48 @@ install -o root -g root -m 0644 \
   "$PROJECT_ROOT/scripts/lib/common.sh" "$libexec/scripts/lib/common.sh"
 install -o root -g root -m 0755 "$PROJECT_ROOT/scripts/palworldctl" /usr/local/bin/palworldctl
 
+install -d -o root -g root -m 0755 "$libexec/bot"
+install -o root -g root -m 0755 \
+  "$PROJECT_ROOT/bot/palworld_discord_bot.py" \
+  "$libexec/bot/palworld_discord_bot.py"
+install -o root -g root -m 0644 \
+  "$PROJECT_ROOT/bot/palworld_status.py" \
+  "$libexec/bot/palworld_status.py"
+install -o root -g root -m 0644 \
+  "$PROJECT_ROOT/bot/requirements.txt" \
+  "$libexec/bot/requirements.txt"
+discord_venv_root="$libexec/discord-venvs"
+install -d -o root -g root -m 0755 "$discord_venv_root"
+requirements_hash="$(sha256sum "$libexec/bot/requirements.txt" | awk '{print $1}')"
+python_abi="$(python3 -c 'import sys; print(f"py{sys.version_info.major}{sys.version_info.minor}")')"
+discord_venv_release="$discord_venv_root/$python_abi-${requirements_hash:0:16}"
+if [[ ! -x "$discord_venv_release/bin/python" ]]; then
+  discord_venv_stage="$(mktemp -d "$discord_venv_root/.staging.XXXXXXXX")"
+  cleanup_discord_venv_stage() {
+    if [[ -n "${discord_venv_stage:-}" \
+      && "$discord_venv_stage" == "$discord_venv_root"/.staging.* ]]; then
+      rm -rf -- "$discord_venv_stage"
+    fi
+  }
+  trap cleanup_discord_venv_stage EXIT
+  python3 -m venv "$discord_venv_stage"
+  PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    "$discord_venv_stage/bin/pip" install --no-cache-dir \
+      --only-binary=:all: \
+      --requirement "$libexec/bot/requirements.txt"
+  "$discord_venv_stage/bin/python" -c \
+    'import discord; assert discord.__version__ == "2.6.1"'
+  mv -T -- "$discord_venv_stage" "$discord_venv_release"
+  discord_venv_stage=''
+  trap - EXIT
+fi
+[[ ! -e "$libexec/discord-venv" || -L "$libexec/discord-venv" ]] \
+  || die "$libexec/discord-venv must be a managed symbolic link"
+discord_venv_link="$libexec/.discord-venv.$BASHPID"
+ln -s "discord-venvs/$(basename -- "$discord_venv_release")" \
+  "$discord_venv_link"
+mv -Tf -- "$discord_venv_link" "$libexec/discord-venv"
+
 PALWORLD_OBSERVER_SOURCE_DIR="$PROJECT_ROOT/native/observer" \
   "$libexec/scripts/install-observer.sh"
 
@@ -197,10 +281,15 @@ DEPOT_DOWNLOADER_SHA256="${DEPOT_DOWNLOADER_SHA256:-}" \
 for unit_file in "$PROJECT_ROOT"/systemd/*; do
   install -o root -g root -m 0644 "$unit_file" "/etc/systemd/system/$(basename -- "$unit_file")"
 done
+# This timer used to perform an unrelated update check in the host timezone.
+# The KST maintenance timer now performs both the update check and restart.
+systemctl disable --now palworld-update.timer >/dev/null 2>&1 || true
+rm -f -- /etc/systemd/system/palworld-update.timer
 systemctl daemon-reload
 if systemctl is-active --quiet palworld.service; then
   systemctl restart palworld-observer.service
 fi
+systemctl try-restart palworld-discord.service || true
 
 if ! is_true "$skip_download"; then
   "$libexec/scripts/maintenance-update.sh"
@@ -209,7 +298,8 @@ systemctl enable --now \
   palworld-firewall.service \
   palworld-backup.timer \
   palworld-healthcheck.timer \
-  palworld-update.timer
+  palworld-maintenance-restart.path \
+  palworld-maintenance-restart.timer
 
 if is_true "$start_server"; then
   [[ -L "$PALWORLD_SERVER_DIR" ]] || die "Cannot start before a release is installed."

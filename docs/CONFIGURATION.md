@@ -21,30 +21,57 @@ sudo palworldctl profile apply
 
 ```text
 bEnableInvaderEnemy=False
-CollectionDropRate=1.8
-CollectionObjectRespawnSpeedRate=2.0
+bIsPvP=False
+bEnablePlayerToPlayerDamage=False
+bEnableDefenseOtherGuildPlayer=False
+bEnableFriendlyFire=False
+ExpRate=1.5
+CollectionDropRate=2.0
+EnemyDropItemRate=2.0
+CollectionObjectRespawnSpeedRate=2.5
+PalEggDefaultHatchingTime=0.111111
+PalStomachDecreaceRate=0.5
+WorkSpeedRate=2.0
+ItemWeightRate=0.5
 DropItemMaxNum=2100
 DropItemAliveMaxHours=0.5
 DeathPenalty=None
 PhysicsActiveDropItemMaxNum=500
 BaseCampMaxNum=64
 BaseCampMaxNumInGuild=10
+BaseCampWorkerMaxNum=15
 MaxBuildingLimitNum=10000
 ServerReplicatePawnCullDistance=12000.0
 ItemContainerForceMarkDirtyInterval=2.0
 ```
 
-`DropItemMaxNum=2100`은 이 서버 빌드의 기본값 3000의 70%입니다.
-`DropItemAliveMaxHours=0.5`는 30분입니다. Pocketpair 문서에서
-`CollectionObjectRespawnSpeedRate`는 이름과 달리 재생 *간격*으로 정의되므로
-`2.0`은 자원이 약 두 배 늦게 다시 생기는 값입니다.
+배율은 기존 실서버 값에 곱하지 않고 Palworld 1.0 기본값을 기준으로 한
+절대값입니다. 기준값은 2026-07-24에 배포된 공식 Linux depot `2394012`
+manifest `1078324976643066553`의 `DefaultPalWorldSettings.ini`와 대조했습니다.
+채집 자원과 적 처치 드롭은 각각 `CollectionDropRate`와
+`EnemyDropItemRate`로 나뉘므로 둘 다 2배로 고정합니다. Pocketpair 문서에서
+`CollectionObjectRespawnSpeedRate`는 재생 *간격*이므로 `2.5`는 자원이
+바닐라보다 2.5배 늦게 다시 생기는 값입니다. 부화 기본값은 대형 알 기준
+1시간이므로 `0.111111`은 바닐라의 1/9, 약 6분 40초입니다.
+
+경험치는 1.5배, 팰 허기 감소 속도는 0.5배입니다. PvP와 플레이어 간 피해,
+타 길드 방어 피해, 아군 피해를 모두 꺼서 PvP 비활성 상태를 명시적으로
+고정합니다. `WorkSpeedRate=2.0`은 현재 네이티브 서버가 제공하는 단일 전역
+작업속도 배율이며, 플레이어와 팰을 별도 키로 나누어 설정할 수 없습니다.
+스탯 포인트당 소지중량 증가량을 바꾸는 네이티브 INI 키도 없으므로
+`ItemWeightRate=0.5`로 모든 아이템 무게를 절반으로 만들어 실질 소지량을
+약 2배로 맞춥니다. 포인트당 증가량만 정확히 2배로 만들려면 검증된 서버
+모드가 별도로 필요합니다.
+
+`DropItemMaxNum=2100`은 이 서버 빌드의 기본값 3000의 70%이고,
+`DropItemAliveMaxHours=0.5`는 30분입니다.
 
 추가 성능 상한은 물리 동작 중인 드롭을 500개로 제한하고, 서버 전체
-거점을 64개로 제한합니다. 길드당 거점은 공식 최대치인 10개입니다.
-플레이어당 건축 상한은 10,000개이며 Pal 복제 거리는
+거점을 64개로 제한합니다. 길드당 거점은 공식 최대치인 10개이고, 거점당
+작업 팰은 15마리로 명시적으로 고정합니다. 플레이어당 건축 상한은
+10,000개이며 Pal 복제 거리는
 150m에서 120m로 줄어듭니다. 컨테이너 UI의 강제 재동기화 간격은 2초라서
-최대 약 1초가량 더 늦게 보일 수 있습니다. 거점당 팰 15마리는 기존값을
-유지합니다.
+최대 약 1초가량 더 늦게 보일 수 있습니다.
 
 적용기는 유지보수 잠금을 잡고 정상 저장·종료, cold backup, 원자적 설정
 변경을 수행합니다. 서버가 실행 중이었다면 재시작 후 REST 값까지 검증하고,

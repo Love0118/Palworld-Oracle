@@ -46,6 +46,28 @@ journalctl -u palworld-update.service
 
 서버가 원래 중지돼 있고 `PALWORLD_UPDATE_START_IF_STOPPED=false`이면 관리자가 정지한 상태를 존중하기 위해 구조 검증만 거쳐 승격하며 런타임 health 검증은 다음 수동 시작 때 수행됩니다. 중지 상태의 자동 업데이트에서도 즉시 기동 검증을 원하면 이 값을 `true`로 설정하되, 업데이트 후 서버가 실행 상태로 남는다는 점을 고려하세요.
 
+## 예약 및 명령 재기동
+
+```bash
+sudo palworldctl restart
+systemctl list-timers palworld-maintenance-restart.timer
+```
+
+`palworldctl restart`와 Discord `/pal restart confirm:True`는 모두
+`palworld-maintenance-restart.service`를 호출합니다. 먼저 updater worktree를
+검증하고, 새 릴리스가 있으면 cold backup 뒤 원자적으로 전환합니다. 새
+릴리스가 없어도 현재 서버를 정상 종료·기동하고 REST health를 확인합니다.
+업데이트가 있는 경우 업데이트 경로의 기동을 재사용하므로 이중 재기동하지
+않습니다.
+
+timer는 호스트 timezone과 무관하게 `Asia/Seoul`을 명시하고 매일 05:00에
+업데이트 검사를 시작합니다. 다운로드 시간만큼 실제 중단 시작 시각은 늦어질
+수 있습니다. 업데이트 확인이 실패하면 경고를 남기고 검증된 현재 릴리스를
+예정대로 재기동합니다. `Persistent=true`이므로 05:00에 호스트가 꺼져 있으면
+다음 부팅에서 누락된 작업을 한 번 수행합니다. 과거의 별도
+`palworld-update.timer`는 설치/업그레이드 시
+비활성화·제거되어 낮 시간대의 추가 업데이트 재기동을 만들지 않습니다.
+
 ## 장애 확인
 
 ```bash

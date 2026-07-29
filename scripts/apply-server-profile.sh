@@ -32,14 +32,25 @@ print_profile() {
   cat <<'EOF'
 profile=arm-balanced
 bEnableInvaderEnemy=False
-CollectionDropRate=1.8
-CollectionObjectRespawnSpeedRate=2.0
+bIsPvP=False
+bEnablePlayerToPlayerDamage=False
+bEnableDefenseOtherGuildPlayer=False
+bEnableFriendlyFire=False
+ExpRate=1.5
+CollectionDropRate=2.0
+EnemyDropItemRate=2.0
+CollectionObjectRespawnSpeedRate=2.5
+PalEggDefaultHatchingTime=0.111111
+PalStomachDecreaceRate=0.5
+WorkSpeedRate=2.0
+ItemWeightRate=0.5
 DropItemMaxNum=2100
 DropItemAliveMaxHours=0.5
 DeathPenalty=None
 PhysicsActiveDropItemMaxNum=500
 BaseCampMaxNum=64
 BaseCampMaxNumInGuild=10
+BaseCampWorkerMaxNum=15
 MaxBuildingLimitNum=10000
 ServerReplicatePawnCullDistance=12000.0
 ItemContainerForceMarkDirtyInterval=2.0
@@ -214,28 +225,50 @@ settings_changed=true
 runuser -u "$PALWORLD_USER" -- python3 "$SCRIPT_DIR/palworld_settings.py" \
   --file "$live_settings" \
   --bool bEnableInvaderEnemy=false \
-  --float CollectionDropRate=1.8 \
-  --float CollectionObjectRespawnSpeedRate=2.0 \
+  --bool bIsPvP=false \
+  --bool bEnablePlayerToPlayerDamage=false \
+  --bool bEnableDefenseOtherGuildPlayer=false \
+  --bool bEnableFriendlyFire=false \
+  --float ExpRate=1.5 \
+  --float CollectionDropRate=2.0 \
+  --float EnemyDropItemRate=2.0 \
+  --float CollectionObjectRespawnSpeedRate=2.5 \
+  --float PalEggDefaultHatchingTime=0.111111 \
+  --float PalStomachDecreaceRate=0.5 \
+  --float WorkSpeedRate=2.0 \
+  --float ItemWeightRate=0.5 \
   --int DropItemMaxNum=2100 \
   --float DropItemAliveMaxHours=0.5 \
   --enum DeathPenalty=None \
   --int PhysicsActiveDropItemMaxNum=500 \
   --int BaseCampMaxNum=64 \
   --int BaseCampMaxNumInGuild=10 \
+  --int BaseCampWorkerMaxNum=15 \
   --int MaxBuildingLimitNum=10000 \
   --float ServerReplicatePawnCullDistance=12000.0 \
   --float ItemContainerForceMarkDirtyInterval=2.0
 runuser -u "$PALWORLD_USER" -- chmod 0640 "$live_settings"
 
 grep -Fq 'bEnableInvaderEnemy=False' "$live_settings"
-grep -Fq 'CollectionDropRate=1.8' "$live_settings"
-grep -Fq 'CollectionObjectRespawnSpeedRate=2.0' "$live_settings"
+grep -Fq 'bIsPvP=False' "$live_settings"
+grep -Fq 'bEnablePlayerToPlayerDamage=False' "$live_settings"
+grep -Fq 'bEnableDefenseOtherGuildPlayer=False' "$live_settings"
+grep -Fq 'bEnableFriendlyFire=False' "$live_settings"
+grep -Fq 'ExpRate=1.5' "$live_settings"
+grep -Fq 'CollectionDropRate=2.0' "$live_settings"
+grep -Fq 'EnemyDropItemRate=2.0' "$live_settings"
+grep -Fq 'CollectionObjectRespawnSpeedRate=2.5' "$live_settings"
+grep -Fq 'PalEggDefaultHatchingTime=0.111111' "$live_settings"
+grep -Fq 'PalStomachDecreaceRate=0.5' "$live_settings"
+grep -Fq 'WorkSpeedRate=2.0' "$live_settings"
+grep -Fq 'ItemWeightRate=0.5' "$live_settings"
 grep -Fq 'DropItemMaxNum=2100' "$live_settings"
 grep -Fq 'DropItemAliveMaxHours=0.5' "$live_settings"
 grep -Eq '(^|,)DeathPenalty=None(,|\))' "$live_settings"
 grep -Fq 'PhysicsActiveDropItemMaxNum=500' "$live_settings"
 grep -Fq 'BaseCampMaxNum=64' "$live_settings"
 grep -Fq 'BaseCampMaxNumInGuild=10' "$live_settings"
+grep -Fq 'BaseCampWorkerMaxNum=15' "$live_settings"
 grep -Fq 'MaxBuildingLimitNum=10000' "$live_settings"
 grep -Fq 'ServerReplicatePawnCullDistance=12000.0' "$live_settings"
 grep -Fq 'ItemContainerForceMarkDirtyInterval=2.0' "$live_settings"
@@ -249,14 +282,25 @@ if is_true "$was_active"; then
     if rest_request GET settings > "$verification_file" 2>/dev/null \
       && jq -e '
         .bEnableInvaderEnemy == false and
-        (.CollectionDropRate >= 1.7999 and .CollectionDropRate <= 1.8001) and
-        (.CollectionObjectRespawnSpeedRate >= 1.9999 and .CollectionObjectRespawnSpeedRate <= 2.0001) and
+        .bIsPvP == false and
+        .bEnablePlayerToPlayerDamage == false and
+        .bEnableDefenseOtherGuildPlayer == false and
+        .bEnableFriendlyFire == false and
+        (.ExpRate >= 1.4999 and .ExpRate <= 1.5001) and
+        (.CollectionDropRate >= 1.9999 and .CollectionDropRate <= 2.0001) and
+        (.EnemyDropItemRate >= 1.9999 and .EnemyDropItemRate <= 2.0001) and
+        (.CollectionObjectRespawnSpeedRate >= 2.4999 and .CollectionObjectRespawnSpeedRate <= 2.5001) and
+        (.PalEggDefaultHatchingTime >= 0.111110 and .PalEggDefaultHatchingTime <= 0.111112) and
+        (.PalStomachDecreaceRate >= 0.4999 and .PalStomachDecreaceRate <= 0.5001) and
+        (.WorkSpeedRate >= 1.9999 and .WorkSpeedRate <= 2.0001) and
+        (.ItemWeightRate >= 0.4999 and .ItemWeightRate <= 0.5001) and
         .DropItemMaxNum == 2100 and
         (.DropItemAliveMaxHours >= 0.4999 and .DropItemAliveMaxHours <= 0.5001) and
         .DeathPenalty == "None" and
         .PhysicsActiveDropItemMaxNum == 500 and
         .BaseCampMaxNum == 64 and
         .BaseCampMaxNumInGuild == 10 and
+        .BaseCampWorkerMaxNum == 15 and
         .MaxBuildingLimitNum == 10000 and
         (.ServerReplicatePawnCullDistance >= 11999.9 and .ServerReplicatePawnCullDistance <= 12000.1) and
         (.ItemContainerForceMarkDirtyInterval >= 1.9999 and .ItemContainerForceMarkDirtyInterval <= 2.0001)

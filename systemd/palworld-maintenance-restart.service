@@ -1,12 +1,14 @@
 [Unit]
-Description=Stage and atomically activate a Palworld update
+Description=Update if needed and safely restart Palworld
+Documentation=https://github.com/Love0118/Palworld-Oracle
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/palworld/palworld.env
-ExecStart=/usr/local/lib/palworld-oracle/scripts/maintenance-update.sh
+ExecStartPre=/usr/bin/rm -f /run/palworld-discord/restart.request
+ExecStart=/usr/local/lib/palworld-oracle/scripts/maintenance-update.sh --restart-always
 TimeoutStartSec=infinity
 UMask=0077
 Nice=10
@@ -26,4 +28,4 @@ RestrictNamespaces=yes
 ProtectClock=yes
 ProtectHostname=yes
 CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID
-ReadWritePaths=/opt/palworld /var/lib/palworld /var/lib/palworld-updater /var/lib/palworld-admin /var/cache/palworld
+ReadWritePaths=/opt/palworld /var/lib/palworld /var/lib/palworld-updater /var/lib/palworld-admin /var/cache/palworld -/run/palworld-discord

@@ -12,7 +12,8 @@ ARM64 네이티브 DepotDownloader가 게임 파일을 받고, Box64 DynaRec이 
 - Box64 `v0.4.2`, DepotDownloader `3.4.0` 기본 고정
 - 실행 중인 릴리스와 다운로드 작업공간 분리
 - 정상 저장/종료 후 원자적 릴리스 전환
-- REST 상태 검사, 6시간 백업, 일일 업데이트 검사
+- REST 상태 검사, 6시간 백업, 한국시간 05:00 업데이트 확인·재기동
+- 역할과 채널이 제한된 Discord 상태·재기동 slash command
 - ARM64 네이티브 C++ 성능 관측과 Prometheus textfile
 
 Palworld의 공식 ARM64 서버 바이너리가 아니라 Box64 변환 실행 방식이므로, 목표 동접과 월드 크기는 실제 부하 테스트로 확정해야 합니다.
@@ -31,7 +32,7 @@ sudo ./scripts/install.sh
 2. 전용 `palworld`, `palworld-updater`, `palworld-backup` 계정을 만듭니다.
 3. 현재 CPU에 맞춰 Box64를 빌드합니다.
 4. ARM64 DepotDownloader와 첫 Palworld 릴리스를 설치합니다.
-5. 백업·상태 확인·업데이트 timer를 활성화합니다. 게임 서비스는 구성이 끝날 때까지 활성화하지 않습니다.
+5. 백업·상태 확인·05:00 KST 재기동 timer를 활성화합니다. 게임 서비스와 Discord 봇은 구성이 끝날 때까지 활성화하지 않습니다.
 
 관리자 비밀번호와 기본 서버 정보를 설정합니다. 비밀번호는 명령행 인수에 넣지 않고 대화형으로 입력합니다.
 
@@ -68,6 +69,7 @@ sudo palworldctl profile show
 sudo palworldctl profile apply
 sudo palworldctl doctor
 sudo palworldctl restart
+sudo palworldctl discord status
 ```
 
 `profile apply`는 실행 중인 서버를 정상 종료하고 cold backup을 만든 뒤,
@@ -81,6 +83,10 @@ REST로 보고하지 않으면 이전 설정을 자동 복원합니다.
 ```
 
 설정 변경 후에는 서버를 재시작해야 합니다.
+
+Discord에서 `/pal status`와 업데이트 포함 `/pal restart`를 사용하려면 bot
+token, 길드·채널·관리 역할 ID를 별도로 등록합니다. 자세한 절차와 권한 경계는
+[Discord 관리 봇](docs/DISCORD_BOT.md)을 참고하세요.
 
 ## 데이터 및 릴리스 구조
 
@@ -122,6 +128,7 @@ PALWORLD_WORKER_THREADS=
 - [구조](docs/ARCHITECTURE.md)
 - [설정 및 Box64 프로필](docs/CONFIGURATION.md)
 - [백업·업데이트·복구 운영](docs/OPERATIONS.md)
+- [Discord 관리 봇](docs/DISCORD_BOT.md)
 - [성능 벤치마크](docs/BENCHMARK.md)
 - [네이티브 최적화와 서버 모드 경계](docs/NATIVE_OPTIMIZATION.md)
 - [원거리 거점·운반·드롭 병합 실험 설계](docs/AWAY_BASE_OPTIMIZATION.md)

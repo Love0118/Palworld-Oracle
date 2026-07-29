@@ -1,0 +1,10 @@
+[Unit]
+Description=Restart Palworld daily at 05:00 Asia/Seoul after an update check
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 Asia/Seoul
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

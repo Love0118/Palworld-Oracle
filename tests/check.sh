@@ -25,7 +25,11 @@ import ast
 from pathlib import Path
 
 ast.parse(Path("scripts/palworld_settings.py").read_text(encoding="utf-8"))
+ast.parse(Path("bot/palworld_status.py").read_text(encoding="utf-8"))
+ast.parse(Path("bot/palworld_discord_bot.py").read_text(encoding="utf-8"))
 PY
+
+python3 tests/discord_status.py
 
 test_root="$(mktemp -d)"
 cleanup() {
@@ -48,12 +52,24 @@ python3 scripts/palworld_settings.py \
   --bool RESTAPIEnabled=true \
   --int RESTAPIPort=18212 \
   --int ServerPlayerMaxNum=16 \
-  --float CollectionDropRate=1.8 \
+  --bool bIsPvP=false \
+  --bool bEnablePlayerToPlayerDamage=false \
+  --bool bEnableDefenseOtherGuildPlayer=false \
+  --bool bEnableFriendlyFire=false \
+  --float ExpRate=1.5 \
+  --float CollectionDropRate=2.0 \
+  --float EnemyDropItemRate=2.0 \
+  --float CollectionObjectRespawnSpeedRate=2.5 \
+  --float PalEggDefaultHatchingTime=0.111111 \
+  --float PalStomachDecreaceRate=0.5 \
+  --float WorkSpeedRate=2.0 \
+  --float ItemWeightRate=0.5 \
   --float DropItemAliveMaxHours=0.5 \
   --enum DeathPenalty=None \
   --int PhysicsActiveDropItemMaxNum=500 \
   --int BaseCampMaxNum=64 \
   --int BaseCampMaxNumInGuild=10 \
+  --int BaseCampWorkerMaxNum=15 \
   --int MaxBuildingLimitNum=10000 \
   --float ServerReplicatePawnCullDistance=12000.0 \
   --float ItemContainerForceMarkDirtyInterval=2.0
@@ -63,21 +79,48 @@ rg -F 'AdminPassword="SafePassword-1234"' "$test_root/PalWorldSettings.ini" >/de
 rg -F 'ServerPlayerMaxNum=16' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'RESTAPIEnabled=True' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'RESTAPIPort=18212' "$test_root/PalWorldSettings.ini" >/dev/null
-rg -F 'CollectionDropRate=1.8' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'bIsPvP=False' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'bEnablePlayerToPlayerDamage=False' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'bEnableDefenseOtherGuildPlayer=False' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'bEnableFriendlyFire=False' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'ExpRate=1.5' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'CollectionDropRate=2.0' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'EnemyDropItemRate=2.0' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'CollectionObjectRespawnSpeedRate=2.5' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'PalEggDefaultHatchingTime=0.111111' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'PalStomachDecreaceRate=0.5' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'WorkSpeedRate=2.0' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'ItemWeightRate=0.5' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'DropItemAliveMaxHours=0.5' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'DeathPenalty=None' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'PhysicsActiveDropItemMaxNum=500' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'BaseCampMaxNum=64' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'BaseCampMaxNumInGuild=10' "$test_root/PalWorldSettings.ini" >/dev/null
+rg -F 'BaseCampWorkerMaxNum=15' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'MaxBuildingLimitNum=10000' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'ServerReplicatePawnCullDistance=12000.0' "$test_root/PalWorldSettings.ini" >/dev/null
 rg -F 'ItemContainerForceMarkDirtyInterval=2.0' "$test_root/PalWorldSettings.ini" >/dev/null
 
-scripts/apply-server-profile.sh show arm-balanced \
-  | rg -F 'DropItemMaxNum=2100' >/dev/null
+profile_output="$(scripts/apply-server-profile.sh show arm-balanced)"
+for expected_profile_setting in \
+  'bIsPvP=False' \
+  'ExpRate=1.5' \
+  'CollectionDropRate=2.0' \
+  'EnemyDropItemRate=2.0' \
+  'CollectionObjectRespawnSpeedRate=2.5' \
+  'PalEggDefaultHatchingTime=0.111111' \
+  'PalStomachDecreaceRate=0.5' \
+  'WorkSpeedRate=2.0' \
+  'ItemWeightRate=0.5' \
+  'DropItemMaxNum=2100' \
+  'BaseCampMaxNumInGuild=10' \
+  'BaseCampWorkerMaxNum=15'; do
+  rg -Fx "$expected_profile_setting" <<< "$profile_output" >/dev/null
+done
 
 if [[ "${PALWORLD_RUN_ROOT_TESTS:-0}" == 1 ]]; then
   sudo -n ./tests/integration_release.sh
+  sudo -n ./tests/maintenance_restart.sh
   sudo -n ./tests/profile_transaction.sh
 fi
 

@@ -19,6 +19,12 @@ updater worktree ── fingerprint ── staging release
                  ┌────────────────────┼───────────────────┐
                  ▼                    ▼                   ▼
           persistent Saved       REST metrics       Box64 cache
+                                      │
+                                      ▼
+                             native observer textfile
+                                      │
+                                      ▼
+                          restricted Discord status bot
 ```
 
 ## 불변 릴리스
@@ -38,6 +44,7 @@ updater worktree ── fingerprint ── staging release
 - `palworld-updater`: 격리된 worktree와 staging만 기록
 - `palworld-backup`: supplementary group 없이 ACL을 통해 Saved만 읽고 별도 backup 영역만 기록; 관리자 credential과 유지보수 lock은 접근할 수 없음
 - `palworld-observer`: Saved 접근 없이 loopback REST와 read-only cgroup 수치만 읽고 자체 Prometheus textfile만 기록
+- `palworld-discord`: observer textfile만 읽고, 전용 runtime 요청 파일을 통해 고정된 업데이트·재기동 unit만 활성화
 - `root`: 릴리스 승격, systemd 제어, credential 설치
 
 `palworld.service`의 MainPID는 launcher가 `exec box64 ...`로 교체되므로 systemd가 실제 변환 프로세스와 전체 cgroup을 추적합니다.
@@ -49,7 +56,9 @@ updater worktree ── fingerprint ── staging release
 - `palworld-backup.service/.timer`: 6시간 백업
 - `palworld-healthcheck.service/.timer`: 프로세스와 REST liveness
 - `palworld-observer.service`: ARM64 네이티브 장기 성능 관측
+- `palworld-discord.service`: 길드·채널·역할 제한 Discord slash command
 - `palworld-recover.service`: 연속 장애 시 cooldown 복구
-- `palworld-update.service/.timer`: 격리 다운로드와 원자적 승격
+- `palworld-update.service`: 수동 업데이트의 격리 다운로드와 원자적 승격
+- `palworld-maintenance-restart.service/.timer`: 매일 05:00 KST 업데이트 확인 후 재기동
 
 Box64 DynaRec은 실행 중 코드를 생성하므로 `MemoryDenyWriteExecute`를 의도적으로 적용하지 않습니다. CPU quota와 낮은 memory hard cap도 기본값에서 제외합니다.
