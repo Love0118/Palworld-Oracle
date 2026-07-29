@@ -53,7 +53,7 @@ updater worktree ── fingerprint ── staging release
 
 - `palworld.service`: 게임 서버
 - `palworld-firewall.service`: 공인 게임 UDP 포트만 호스트 INPUT 정책에 허용
-- `palworld-backup.service/.timer`: 6시간 백업
+- `palworld-backup.service`: 관리자가 요청할 때 수행하는 수동 cold backup
 - `palworld-healthcheck.service/.timer`: 프로세스와 REST liveness
 - `palworld-observer.service`: ARM64 네이티브 장기 성능 관측
 - `palworld-discord.service`: 길드·채널·역할 제한 Discord slash command

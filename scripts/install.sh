@@ -287,6 +287,10 @@ done
 # The KST maintenance timer now performs both the update check and restart.
 systemctl disable --now palworld-update.timer >/dev/null 2>&1 || true
 rm -f -- /etc/systemd/system/palworld-update.timer
+# Automatic cold backups caused an avoidable game disconnect every six hours.
+# Keep palworld-backup.service for explicit/manual and pre-update backups only.
+systemctl disable --now palworld-backup.timer >/dev/null 2>&1 || true
+rm -f -- /etc/systemd/system/palworld-backup.timer
 systemctl daemon-reload
 if systemctl is-active --quiet palworld.service; then
   systemctl restart palworld-observer.service
@@ -298,7 +302,6 @@ if ! is_true "$skip_download"; then
 fi
 systemctl enable --now \
   palworld-firewall.service \
-  palworld-backup.timer \
   palworld-healthcheck.timer \
   palworld-maintenance-restart.path \
   palworld-maintenance-restart.timer
