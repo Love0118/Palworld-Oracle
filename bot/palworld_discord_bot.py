@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+import stat
 from pathlib import Path
 
 import discord
@@ -86,11 +87,14 @@ def read_log_channel_id() -> int | None:
     try:
         descriptor = os.open(
             LOG_CHANNEL_PATH,
-            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
         )
     except FileNotFoundError:
         return None
     try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 32:
+            raise ValueError("stored log channel setting is not a small regular file")
         serialized = os.read(descriptor, 32)
         if os.read(descriptor, 1):
             raise ValueError("stored log channel ID is too long")
@@ -389,6 +393,21 @@ pal = app_commands.Group(name="pal", description="Palworld 서버 관리")
 restart_in_progress = False
 
 
+def journal_command_invocation(
+    interaction: discord.Interaction, command_name: str
+) -> None:
+    LOGGER.info(
+        "command_invocation interaction_id=%s created_at=%s command=%s "
+        "user_id=%s guild_id=%s channel_id=%s",
+        interaction.id,
+        interaction.created_at.isoformat(),
+        command_name,
+        interaction.user.id,
+        interaction.guild_id,
+        interaction.channel_id,
+    )
+
+
 async def audit_command(
     interaction: discord.Interaction,
     command_name: str,
@@ -478,6 +497,7 @@ async def audit_command(
 
 @pal.command(name="status", description="서버 CPU, RAM, 접속자와 성능 상태를 확인합니다.")
 async def status_command(interaction: discord.Interaction) -> None:
+    journal_command_invocation(interaction, "/pal status")
     if not await interaction_in_scope(interaction, "/pal status"):
         return
     await interaction.response.defer(ephemeral=True, thinking=True)
@@ -507,6 +527,7 @@ async def restart_command(
     interaction: discord.Interaction, confirm: bool
 ) -> None:
     global restart_in_progress
+    journal_command_invocation(interaction, "/pal restart")
     if not await interaction_in_scope(interaction, "/pal restart"):
         return
     if not is_management_admin(interaction):
@@ -673,11 +694,11 @@ async def restart_command(
     name="log-channel",
     description="Palworld 관리 명령 기록을 남길 Discord 채널을 지정합니다.",
 )
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(channel="관리 명령 기록을 남길 텍스트 채널")
 async def log_channel_command(
     interaction: discord.Interaction, channel: discord.TextChannel
 ) -> None:
+    journal_command_invocation(interaction, "/pal log-channel")
     if not await interaction_in_scope(interaction, "/pal log-channel"):
         return
     if not is_audit_admin(interaction):
