@@ -207,6 +207,24 @@ async def interaction_in_scope(
     return True
 
 
+async def interaction_in_configured_guild(
+    interaction: discord.Interaction, command_name: str
+) -> bool:
+    if interaction.guild_id != GUILD_ID:
+        await interaction.response.send_message(
+            "이 명령어는 등록된 Discord 서버에서만 사용할 수 있습니다.",
+            ephemeral=True,
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "등록된 Discord 서버 밖에서 실행했습니다.",
+        )
+        return False
+    return True
+
+
 def is_management_admin(interaction: discord.Interaction) -> bool:
     member = interaction.user
     if not isinstance(member, discord.Member):
@@ -699,7 +717,7 @@ async def log_channel_command(
     interaction: discord.Interaction, channel: discord.TextChannel
 ) -> None:
     journal_command_invocation(interaction, "/pal log-channel")
-    if not await interaction_in_scope(interaction, "/pal log-channel"):
+    if not await interaction_in_configured_guild(interaction, "/pal log-channel"):
         return
     if not is_audit_admin(interaction):
         await interaction.response.send_message(

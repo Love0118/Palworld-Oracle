@@ -50,9 +50,9 @@ sudo palworldctl discord logs
 
 ## 명령 로그 채널
 
-Discord 서버 소유자 또는 Administrator가 관리 채널에서 다음 명령을 실행하면
-설정이 재기동 후에도 유지됩니다. 재기동 전용 관리 역할만 가진 사용자는 로그
-목적지를 변경할 수 없습니다.
+Discord 서버 소유자 또는 Administrator가 등록된 Discord 서버의 어느 채널에서든
+다음 명령을 실행하면 설정이 재기동 후에도 유지됩니다. 재기동 전용 관리 역할만
+가진 사용자는 로그 목적지를 변경할 수 없습니다.
 
 ```text
 /pal log-channel channel:#서버-로그
