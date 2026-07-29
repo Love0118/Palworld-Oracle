@@ -250,10 +250,12 @@ if [[ ! -x "$discord_venv_release/bin/python" ]]; then
       --requirement "$libexec/bot/requirements.txt"
   "$discord_venv_stage/bin/python" -c \
     'import discord; assert discord.__version__ == "2.6.1"'
+  chmod 0755 "$discord_venv_stage"
   mv -T -- "$discord_venv_stage" "$discord_venv_release"
   discord_venv_stage=''
   trap - EXIT
 fi
+chmod 0755 "$discord_venv_release"
 [[ ! -e "$libexec/discord-venv" || -L "$libexec/discord-venv" ]] \
   || die "$libexec/discord-venv must be a managed symbolic link"
 discord_venv_link="$libexec/.discord-venv.$BASHPID"
