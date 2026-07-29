@@ -24,7 +24,8 @@ Options:
   --token-file PATH      Read the Discord bot token from PATH.
   --guild-id ID          Restrict commands to this Discord guild.
   --channel-id ID        Restrict commands to this Discord channel.
-  --admin-role-id ID     Allow restart for this role (repeatable).
+  --admin-role-id ID     Allow restart for this role (repeatable, optional).
+                         Without one, Discord Administrators only.
   -h, --help             Show this help.
 EOF
 }
@@ -70,9 +71,6 @@ validate_snowflake() {
   || die "--token-file must name a readable file"
 validate_snowflake guild_id "$guild_id"
 validate_snowflake channel_id "$channel_id"
-(( ${#admin_role_ids[@]} > 0 )) \
-  || die "At least one --admin-role-id is required"
-
 for role_id in "${admin_role_ids[@]}"; do
   validate_snowflake admin_role_id "$role_id"
 done

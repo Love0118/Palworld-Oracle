@@ -37,7 +37,9 @@ sudo palworldctl discord configure \
 ```
 
 `--admin-role-id`는 여러 번 지정할 수 있습니다. Discord의 Administrator
-권한을 가진 사용자도 재기동할 수 있습니다. 설정이 끝나면 원본 토큰 파일은
+권한을 가진 사용자도 재기동할 수 있습니다. 별도 관리 역할이 없다면
+`--admin-role-id`를 생략하고 Administrator만 허용할 수 있습니다. 설정이
+끝나면 원본 토큰 파일은
 안전하게 삭제하고, bot token을 회전할 때 같은 명령으로 다시 구성합니다.
 
 ```bash

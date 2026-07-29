@@ -123,6 +123,4 @@ def parse_snowflake_list(serialized: str) -> frozenset[int]:
         if value >= 2**64:
             raise ValueError("Discord role ID is outside the snowflake range")
         values.add(value)
-    if not values:
-        raise ValueError("at least one Discord administrator role ID is required")
     return frozenset(values)

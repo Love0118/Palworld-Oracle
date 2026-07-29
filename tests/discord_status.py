@@ -68,8 +68,7 @@ labelled_metric{label="ignored"} 10
     def test_admin_role_allowlist(self) -> None:
         values = parse_snowflake_list("123456789012345678, 223456789012345678")
         self.assertEqual(len(values), 2)
-        with self.assertRaises(ValueError):
-            parse_snowflake_list("")
+        self.assertEqual(parse_snowflake_list(""), frozenset())
         with self.assertRaises(ValueError):
             parse_snowflake_list("role-name")
 
