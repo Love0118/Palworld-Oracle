@@ -36,11 +36,11 @@ bIsPvP=False
 bEnablePlayerToPlayerDamage=False
 bEnableDefenseOtherGuildPlayer=False
 bEnableFriendlyFire=False
-ExpRate=1.5
+ExpRate=2.0
 CollectionDropRate=2.0
 EnemyDropItemRate=2.0
 CollectionObjectRespawnSpeedRate=2.5
-PalEggDefaultHatchingTime=0.111111
+PalEggDefaultHatchingTime=0.25
 PalStomachDecreaceRate=0.5
 WorkSpeedRate=2.0
 ItemWeightRate=0.5
@@ -229,11 +229,11 @@ runuser -u "$PALWORLD_USER" -- python3 "$SCRIPT_DIR/palworld_settings.py" \
   --bool bEnablePlayerToPlayerDamage=false \
   --bool bEnableDefenseOtherGuildPlayer=false \
   --bool bEnableFriendlyFire=false \
-  --float ExpRate=1.5 \
+  --float ExpRate=2.0 \
   --float CollectionDropRate=2.0 \
   --float EnemyDropItemRate=2.0 \
   --float CollectionObjectRespawnSpeedRate=2.5 \
-  --float PalEggDefaultHatchingTime=0.111111 \
+  --float PalEggDefaultHatchingTime=0.25 \
   --float PalStomachDecreaceRate=0.5 \
   --float WorkSpeedRate=2.0 \
   --float ItemWeightRate=0.5 \
@@ -254,11 +254,11 @@ grep -Fq 'bIsPvP=False' "$live_settings"
 grep -Fq 'bEnablePlayerToPlayerDamage=False' "$live_settings"
 grep -Fq 'bEnableDefenseOtherGuildPlayer=False' "$live_settings"
 grep -Fq 'bEnableFriendlyFire=False' "$live_settings"
-grep -Fq 'ExpRate=1.5' "$live_settings"
+grep -Fq 'ExpRate=2.0' "$live_settings"
 grep -Fq 'CollectionDropRate=2.0' "$live_settings"
 grep -Fq 'EnemyDropItemRate=2.0' "$live_settings"
 grep -Fq 'CollectionObjectRespawnSpeedRate=2.5' "$live_settings"
-grep -Fq 'PalEggDefaultHatchingTime=0.111111' "$live_settings"
+grep -Fq 'PalEggDefaultHatchingTime=0.25' "$live_settings"
 grep -Fq 'PalStomachDecreaceRate=0.5' "$live_settings"
 grep -Fq 'WorkSpeedRate=2.0' "$live_settings"
 grep -Fq 'ItemWeightRate=0.5' "$live_settings"
@@ -286,11 +286,11 @@ if is_true "$was_active"; then
         .bEnablePlayerToPlayerDamage == false and
         .bEnableDefenseOtherGuildPlayer == false and
         .bEnableFriendlyFire == false and
-        (.ExpRate >= 1.4999 and .ExpRate <= 1.5001) and
+        (.ExpRate >= 1.9999 and .ExpRate <= 2.0001) and
         (.CollectionDropRate >= 1.9999 and .CollectionDropRate <= 2.0001) and
         (.EnemyDropItemRate >= 1.9999 and .EnemyDropItemRate <= 2.0001) and
         (.CollectionObjectRespawnSpeedRate >= 2.4999 and .CollectionObjectRespawnSpeedRate <= 2.5001) and
-        (.PalEggDefaultHatchingTime >= 0.111110 and .PalEggDefaultHatchingTime <= 0.111112) and
+        (.PalEggDefaultHatchingTime >= 0.2499 and .PalEggDefaultHatchingTime <= 0.2501) and
         (.PalStomachDecreaceRate >= 0.4999 and .PalStomachDecreaceRate <= 0.5001) and
         (.WorkSpeedRate >= 1.9999 and .WorkSpeedRate <= 2.0001) and
         (.ItemWeightRate >= 0.4999 and .ItemWeightRate <= 0.5001) and

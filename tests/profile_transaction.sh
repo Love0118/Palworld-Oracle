@@ -124,7 +124,7 @@ case "${PALWORLD_TEST_REST_MODE:-mismatch}" in
     printf '{}\n'
     ;;
   success)
-    printf '%s\n' '{"bEnableInvaderEnemy":false,"bIsPvP":false,"bEnablePlayerToPlayerDamage":false,"bEnableDefenseOtherGuildPlayer":false,"bEnableFriendlyFire":false,"ExpRate":1.5,"CollectionDropRate":2.0,"EnemyDropItemRate":2.0,"CollectionObjectRespawnSpeedRate":2.5,"PalEggDefaultHatchingTime":0.111111,"PalStomachDecreaceRate":0.5,"WorkSpeedRate":2.0,"ItemWeightRate":0.5,"DropItemMaxNum":2100,"DropItemAliveMaxHours":0.5,"DeathPenalty":"None","PhysicsActiveDropItemMaxNum":500,"BaseCampMaxNum":64,"BaseCampMaxNumInGuild":10,"BaseCampWorkerMaxNum":15,"MaxBuildingLimitNum":10000,"ServerReplicatePawnCullDistance":12000.0,"ItemContainerForceMarkDirtyInterval":2.0}'
+    printf '%s\n' '{"bEnableInvaderEnemy":false,"bIsPvP":false,"bEnablePlayerToPlayerDamage":false,"bEnableDefenseOtherGuildPlayer":false,"bEnableFriendlyFire":false,"ExpRate":2.0,"CollectionDropRate":2.0,"EnemyDropItemRate":2.0,"CollectionObjectRespawnSpeedRate":2.5,"PalEggDefaultHatchingTime":0.25,"PalStomachDecreaceRate":0.5,"WorkSpeedRate":2.0,"ItemWeightRate":0.5,"DropItemMaxNum":2100,"DropItemAliveMaxHours":0.5,"DeathPenalty":"None","PhysicsActiveDropItemMaxNum":500,"BaseCampMaxNum":64,"BaseCampMaxNumInGuild":10,"BaseCampWorkerMaxNum":15,"MaxBuildingLimitNum":10000,"ServerReplicatePawnCullDistance":12000.0,"ItemContainerForceMarkDirtyInterval":2.0}'
     ;;
   *)
     printf 'unsupported fake REST mode: %s\n' "$PALWORLD_TEST_REST_MODE" >&2
@@ -400,11 +400,11 @@ run_success_scenario() {
     'bEnablePlayerToPlayerDamage=False' \
     'bEnableDefenseOtherGuildPlayer=False' \
     'bEnableFriendlyFire=False' \
-    'ExpRate=1.5' \
+    'ExpRate=2.0' \
     'CollectionDropRate=2.0' \
     'EnemyDropItemRate=2.0' \
     'CollectionObjectRespawnSpeedRate=2.5' \
-    'PalEggDefaultHatchingTime=0.111111' \
+    'PalEggDefaultHatchingTime=0.25' \
     'PalStomachDecreaceRate=0.5' \
     'WorkSpeedRate=2.0' \
     'ItemWeightRate=0.5' \

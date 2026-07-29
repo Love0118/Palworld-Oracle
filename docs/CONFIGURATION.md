@@ -25,11 +25,11 @@ bIsPvP=False
 bEnablePlayerToPlayerDamage=False
 bEnableDefenseOtherGuildPlayer=False
 bEnableFriendlyFire=False
-ExpRate=1.5
+ExpRate=2.0
 CollectionDropRate=2.0
 EnemyDropItemRate=2.0
 CollectionObjectRespawnSpeedRate=2.5
-PalEggDefaultHatchingTime=0.111111
+PalEggDefaultHatchingTime=0.25
 PalStomachDecreaceRate=0.5
 WorkSpeedRate=2.0
 ItemWeightRate=0.5
@@ -52,9 +52,9 @@ manifest `1078324976643066553`의 `DefaultPalWorldSettings.ini`와 대조했습�
 `EnemyDropItemRate`로 나뉘므로 둘 다 2배로 고정합니다. Pocketpair 문서에서
 `CollectionObjectRespawnSpeedRate`는 재생 *간격*이므로 `2.5`는 자원이
 바닐라보다 2.5배 늦게 다시 생기는 값입니다. 부화 기본값은 대형 알 기준
-1시간이므로 `0.111111`은 바닐라의 1/9, 약 6분 40초입니다.
+1시간이므로 `0.25`는 바닐라의 1/4, 약 15분입니다.
 
-경험치는 1.5배, 팰 허기 감소 속도는 0.5배입니다. PvP와 플레이어 간 피해,
+경험치는 2배, 팰 허기 감소 속도는 0.5배입니다. PvP와 플레이어 간 피해,
 타 길드 방어 피해, 아군 피해를 모두 꺼서 PvP 비활성 상태를 명시적으로
 고정합니다. `WorkSpeedRate=2.0`은 현재 네이티브 서버가 제공하는 단일 전역
 작업속도 배율이며, 플레이어와 팰을 별도 키로 나누어 설정할 수 없습니다.
