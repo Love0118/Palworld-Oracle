@@ -8,7 +8,8 @@ Discord 봇은 등록한 길드와 채널에서만 세 개의 slash command를 �
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
 `serverfps`를 **TPS 대체 지표**로 명시해 표시합니다. 봇은 네이티브 observer가
-만든 Prometheus 파일만 읽으며 REST 관리자 비밀번호에는 접근하지 않습니다.
+만든 Prometheus 파일과 `userId` 전용 스냅샷만 읽으며 REST 관리자 비밀번호에는
+접근하지 않습니다.
 
 ## Discord 애플리케이션 준비
 
@@ -63,6 +64,11 @@ Discord 서버 소유자 또는 Administrator가 등록된 Discord 서버의 어
 채널에 기록합니다. 로그 채널이 아직 지정되지 않았거나 Discord 전송이 실패한
 경우에도 systemd journal에는 같은 명령 사용 기록이 남으며, 관리 명령 자체는
 로그 전송 실패와 관계없이 계속 동작합니다.
+
+플레이어가 접속하면 같은 채널에 현재 접속 인원과 REST가 제공하는 `userId`를
+기록합니다. 게임 닉네임, 계정명, IP, 위치와 ping은 observer 단계에서 버리므로
+Discord 봇에 전달되지 않습니다. 관측 주기가 10초이므로 접속 로그는 최대 약
+10초 늦게 표시될 수 있습니다.
 
 ## 재기동과 업데이트
 

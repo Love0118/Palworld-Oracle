@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 import secrets
 import stat
+import time
+from contextlib import suppress
 from pathlib import Path
 
 import discord
@@ -31,6 +34,8 @@ SYSTEMCTL = "/usr/bin/systemctl"
 READY_PATH = Path("/run/palworld-discord/ready")
 RESTART_REQUEST_PATH = Path("/run/palworld-discord/restart.request")
 LOG_CHANNEL_PATH = Path("/var/lib/palworld-discord/log-channel-id")
+PLAYER_ID_PATTERN = re.compile(r"[!-~]{1,128}")
+PLAYER_SNAPSHOT_MAX_BYTES = 16 * 1024
 
 
 def required_snowflake(name: str) -> int:
@@ -146,6 +151,52 @@ def write_log_channel_id(channel_id: int) -> None:
         os.close(directory)
 
 
+def read_player_snapshot(path: Path) -> tuple[float, frozenset[str], float]:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("player snapshot is not a regular file")
+        if metadata.st_size > PLAYER_SNAPSHOT_MAX_BYTES:
+            raise ValueError("player snapshot exceeds the size limit")
+        chunks: list[bytes] = []
+        size = 0
+        while True:
+            chunk = os.read(descriptor, 4096)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > PLAYER_SNAPSHOT_MAX_BYTES:
+                raise ValueError("player snapshot exceeds the size limit")
+            chunks.append(chunk)
+    finally:
+        os.close(descriptor)
+
+    lines = b"".join(chunks).decode("ascii").splitlines()
+    if len(lines) < 2 or lines[0] != "PALWORLD_PLAYER_SNAPSHOT_V1":
+        raise ValueError("player snapshot header is invalid")
+    if not lines[1].startswith("uptime="):
+        raise ValueError("player snapshot uptime is missing")
+    server_uptime = float(lines[1].removeprefix("uptime="))
+    if not math.isfinite(server_uptime) or server_uptime < 0:
+        raise ValueError("player snapshot uptime is invalid")
+
+    player_ids: set[str] = set()
+    for line in lines[2:]:
+        if not line.startswith("id="):
+            raise ValueError("player snapshot entry is invalid")
+        player_id = line.removeprefix("id=")
+        if not PLAYER_ID_PATTERN.fullmatch(player_id):
+            raise ValueError("player snapshot userId is invalid")
+        if player_id in player_ids:
+            raise ValueError("player snapshot repeats a userId")
+        player_ids.add(player_id)
+    return server_uptime, frozenset(player_ids), metadata.st_mtime
+
+
 GUILD_ID = required_snowflake("PALWORLD_DISCORD_GUILD_ID")
 CHANNEL_ID = required_snowflake("PALWORLD_DISCORD_CHANNEL_ID")
 ADMIN_ROLE_IDS = parse_snowflake_list(
@@ -159,6 +210,18 @@ METRICS_PATH = Path(
 )
 METRICS_MAX_AGE = positive_integer(
     "PALWORLD_DISCORD_METRICS_MAX_AGE_SECONDS", 30, 3600
+)
+PLAYER_SNAPSHOT_PATH = Path(
+    os.environ.get(
+        "PALWORLD_DISCORD_PLAYER_SNAPSHOT_FILE",
+        "/var/lib/palworld-observer/players.snapshot",
+    )
+)
+PLAYER_SNAPSHOT_MAX_AGE = positive_integer(
+    "PALWORLD_DISCORD_PLAYER_SNAPSHOT_MAX_AGE_SECONDS", 30, 3600
+)
+PLAYER_WATCH_INTERVAL = positive_integer(
+    "PALWORLD_DISCORD_PLAYER_WATCH_INTERVAL_SECONDS", 2, 60
 )
 COMMAND_TIMEOUT = positive_integer(
     "PALWORLD_DISCORD_COMMAND_TIMEOUT_SECONDS", 840, 840
@@ -339,6 +402,10 @@ class PalworldClient(discord.Client):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.log_channel_id: int | None = None
+        self.player_watch_task: asyncio.Task[None] | None = None
+        self.known_player_ids: frozenset[str] | None = None
+        self.known_server_uptime: float | None = None
+        self.player_snapshot_error: str | None = None
 
     async def setup_hook(self) -> None:
         try:
@@ -404,6 +471,127 @@ class PalworldClient(discord.Client):
                     )
         write_ready_marker()
         LOGGER.info("connected as Discord application user %s", self.user)
+        if self.player_watch_task is None or self.player_watch_task.done():
+            self.player_watch_task = asyncio.create_task(
+                self.watch_player_connections(),
+                name="palworld-player-connection-watch",
+            )
+
+    async def close(self) -> None:
+        task = self.player_watch_task
+        self.player_watch_task = None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        await super().close()
+
+    async def send_player_connection_log(
+        self, player_id: str, current_players: int
+    ) -> None:
+        LOGGER.info(
+            "player_connected user_id=%s current_players=%d",
+            player_id,
+            current_players,
+        )
+        if self.log_channel_id is None:
+            return
+        try:
+            guild = self.get_guild(GUILD_ID)
+            if guild is None:
+                raise RuntimeError("configured guild is unavailable")
+            channel = guild.get_channel(self.log_channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                raise RuntimeError("configured log channel is unavailable")
+            member = guild.me
+            if member is None:
+                raise RuntimeError("bot guild membership is unavailable")
+            permissions = channel.permissions_for(member)
+            if not (
+                permissions.view_channel
+                and permissions.send_messages
+                and permissions.embed_links
+            ):
+                raise RuntimeError("configured log channel lacks required permissions")
+
+            safe_player_id = discord.utils.escape_markdown(
+                discord.utils.escape_mentions(player_id)
+            )
+            embed = discord.Embed(
+                title="Palworld 플레이어 접속",
+                colour=discord.Colour.green(),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.add_field(
+                name="접속 ID (userId)", value=safe_player_id, inline=False
+            )
+            embed.add_field(
+                name="현재 접속 인원",
+                value=f"{current_players}명",
+                inline=True,
+            )
+            await asyncio.wait_for(
+                channel.send(
+                    embed=embed,
+                    allowed_mentions=discord.AllowedMentions.none(),
+                ),
+                timeout=10,
+            )
+        except Exception as error:
+            LOGGER.warning(
+                "Discord player connection log delivery failed (%s); "
+                "journal record retained",
+                type(error).__name__,
+            )
+
+    async def watch_player_connections(self) -> None:
+        while not self.is_closed():
+            try:
+                server_uptime, player_ids, modified = read_player_snapshot(
+                    PLAYER_SNAPSHOT_PATH
+                )
+                snapshot_age = time.time() - modified
+                if snapshot_age < -5 or snapshot_age > PLAYER_SNAPSHOT_MAX_AGE:
+                    raise ValueError("player snapshot is stale")
+
+                if self.player_snapshot_error is not None:
+                    LOGGER.info("player snapshot monitoring recovered")
+                    self.player_snapshot_error = None
+
+                if self.known_player_ids is None:
+                    self.known_player_ids = player_ids
+                    self.known_server_uptime = server_uptime
+                    LOGGER.info(
+                        "player connection baseline initialized count=%d",
+                        len(player_ids),
+                    )
+                else:
+                    previous_ids = self.known_player_ids
+                    if (
+                        self.known_server_uptime is not None
+                        and server_uptime + 1 < self.known_server_uptime
+                    ):
+                        previous_ids = frozenset()
+                    joined_player_ids = sorted(player_ids - previous_ids)
+                    self.known_player_ids = player_ids
+                    self.known_server_uptime = server_uptime
+                    for player_id in joined_player_ids:
+                        await self.send_player_connection_log(
+                            player_id, len(player_ids)
+                        )
+            except FileNotFoundError:
+                error_key = "missing"
+                if self.player_snapshot_error != error_key:
+                    LOGGER.warning("player snapshot is not available yet")
+                    self.player_snapshot_error = error_key
+            except (OSError, UnicodeError, ValueError) as error:
+                error_key = type(error).__name__
+                if self.player_snapshot_error != error_key:
+                    LOGGER.warning(
+                        "player snapshot cannot be used (%s)", error_key
+                    )
+                    self.player_snapshot_error = error_key
+            await asyncio.sleep(PLAYER_WATCH_INTERVAL)
 
 
 client = PalworldClient()

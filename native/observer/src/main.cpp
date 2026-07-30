@@ -54,6 +54,8 @@ struct Config {
   std::filesystem::path credential_path;
   std::filesystem::path output_path{
       "/var/lib/palworld-observer/palworld.prom"};
+  std::filesystem::path player_snapshot_path{
+      "/var/lib/palworld-observer/players.snapshot"};
   std::chrono::seconds interval{10};
 };
 
@@ -145,6 +147,10 @@ Config load_config() {
   const std::string output = get_environment(
       "PALWORLD_OBSERVER_OUTPUT", config.output_path.string());
   config.output_path = output;
+  const std::string player_snapshot = get_environment(
+      "PALWORLD_OBSERVER_PLAYERS_OUTPUT",
+      config.player_snapshot_path.string());
+  config.player_snapshot_path = player_snapshot;
 
   const std::string credentials_directory =
       get_environment("CREDENTIALS_DIRECTORY", "");
@@ -173,6 +179,9 @@ Config load_config() {
   }
   if (config.output_path.empty()) {
     throw std::runtime_error("PALWORLD_OBSERVER_OUTPUT is empty");
+  }
+  if (config.player_snapshot_path.empty()) {
+    throw std::runtime_error("PALWORLD_OBSERVER_PLAYERS_OUTPUT is empty");
   }
   return config;
 }
@@ -481,13 +490,18 @@ std::string parse_http_response(std::string response) {
   return body;
 }
 
-std::string fetch_metrics_json(const Config& config,
-                               std::string_view password) {
+std::string fetch_rest_json(const Config& config, std::string_view password,
+                            std::string_view endpoint) {
+  if (endpoint.empty() || contains_control_character(endpoint) ||
+      endpoint.find('/') != std::string_view::npos ||
+      endpoint.find(' ') != std::string_view::npos) {
+    throw std::runtime_error("REST endpoint name is invalid");
+  }
   std::string path = config.rest_base_path;
   if (path.back() != '/') {
     path.push_back('/');
   }
-  path.append("metrics");
+  path.append(endpoint);
   const std::string authorization =
       base64_encode(config.rest_user + ":" + std::string(password));
   const std::string request =
@@ -522,6 +536,16 @@ std::string fetch_metrics_json(const Config& config,
     response.append(buffer.data(), unsigned_count);
   }
   return parse_http_response(std::move(response));
+}
+
+bool valid_player_id(std::string_view value) {
+  if (value.empty() || value.size() > 128U) {
+    return false;
+  }
+  return std::all_of(value.begin(), value.end(), [](const char character) {
+    const auto byte = static_cast<unsigned char>(character);
+    return byte >= 0x21U && byte <= 0x7eU;
+  });
 }
 
 class JsonCursor {
@@ -583,7 +607,101 @@ class JsonCursor {
             *max_player_num, *uptime};
   }
 
+  std::vector<std::string> parse_player_ids() {
+    skip_whitespace();
+    expect('{');
+    std::optional<std::vector<std::string>> player_ids;
+    skip_whitespace();
+    if (consume('}')) {
+      throw std::runtime_error("REST players object is empty");
+    }
+    while (true) {
+      const std::string key = parse_string();
+      skip_whitespace();
+      expect(':');
+      skip_whitespace();
+      if (key == "players") {
+        if (player_ids.has_value()) {
+          throw std::runtime_error("REST players JSON repeats players");
+        }
+        player_ids = parse_player_array();
+      } else {
+        skip_value();
+      }
+      skip_whitespace();
+      if (consume('}')) {
+        break;
+      }
+      expect(',');
+      skip_whitespace();
+    }
+    skip_whitespace();
+    if (position_ != input_.size()) {
+      throw std::runtime_error("trailing data after REST players JSON");
+    }
+    if (!player_ids.has_value()) {
+      throw std::runtime_error("REST players JSON is missing players");
+    }
+    std::sort(player_ids->begin(), player_ids->end());
+    if (std::adjacent_find(player_ids->begin(), player_ids->end()) !=
+        player_ids->end()) {
+      throw std::runtime_error("REST players JSON contains duplicate userId");
+    }
+    return std::move(*player_ids);
+  }
+
  private:
+  std::vector<std::string> parse_player_array() {
+    std::vector<std::string> player_ids;
+    expect('[');
+    skip_whitespace();
+    if (consume(']')) {
+      return player_ids;
+    }
+    while (true) {
+      player_ids.push_back(parse_player_object());
+      skip_whitespace();
+      if (consume(']')) {
+        return player_ids;
+      }
+      expect(',');
+      skip_whitespace();
+    }
+  }
+
+  std::string parse_player_object() {
+    expect('{');
+    std::optional<std::string> player_id;
+    skip_whitespace();
+    if (consume('}')) {
+      throw std::runtime_error("REST player object is empty");
+    }
+    while (true) {
+      const std::string key = parse_string();
+      skip_whitespace();
+      expect(':');
+      skip_whitespace();
+      if (key == "userId") {
+        if (player_id.has_value()) {
+          throw std::runtime_error("REST player object repeats userId");
+        }
+        player_id = parse_string();
+      } else {
+        skip_value();
+      }
+      skip_whitespace();
+      if (consume('}')) {
+        break;
+      }
+      expect(',');
+      skip_whitespace();
+    }
+    if (!player_id.has_value() || !valid_player_id(*player_id)) {
+      throw std::runtime_error("REST player object has an invalid userId");
+    }
+    return std::move(*player_id);
+  }
+
   void skip_whitespace() {
     while (position_ < input_.size()) {
       const char character = input_[position_];
@@ -794,6 +912,10 @@ class JsonCursor {
 
 ServerMetrics parse_server_metrics(std::string_view json) {
   return JsonCursor(json).parse_metrics();
+}
+
+std::vector<std::string> parse_player_ids(std::string_view json) {
+  return JsonCursor(json).parse_player_ids();
 }
 
 std::uint64_t parse_single_counter(const std::filesystem::path& path) {
@@ -1024,15 +1146,26 @@ std::string make_prometheus_text(const ServerMetrics& server,
   return output.str();
 }
 
+std::string make_player_snapshot(
+    double server_uptime, const std::vector<std::string>& player_ids) {
+  std::ostringstream output;
+  output << "PALWORLD_PLAYER_SNAPSHOT_V1\n"
+         << "uptime=" << std::setprecision(12) << server_uptime << '\n';
+  for (const std::string& player_id : player_ids) {
+    output << "id=" << player_id << '\n';
+  }
+  return output.str();
+}
+
 void atomic_write(const std::filesystem::path& destination,
                   std::string_view contents) {
   const std::filesystem::path directory = destination.parent_path();
   if (directory.empty()) {
-    throw std::runtime_error("Prometheus output path has no parent directory");
+    throw std::runtime_error("observer output path has no parent directory");
   }
   std::error_code error;
   if (!std::filesystem::is_directory(directory, error)) {
-    throw std::runtime_error("Prometheus output directory is unavailable: " +
+    throw std::runtime_error("observer output directory is unavailable: " +
                              directory.string());
   }
   std::string template_path = destination.string() + ".tmp.XXXXXX";
@@ -1041,30 +1174,30 @@ void atomic_write(const std::filesystem::path& destination,
   writable_template.push_back('\0');
   FileDescriptor temporary(::mkstemp(writable_template.data()));
   if (!temporary.valid()) {
-    throw std::runtime_error("cannot create Prometheus temporary file: " +
+    throw std::runtime_error("cannot create observer temporary file: " +
                              std::string(std::strerror(errno)));
   }
   const std::filesystem::path temporary_path(writable_template.data());
   bool renamed = false;
   try {
     if (::fchmod(temporary.get(), S_IRUSR | S_IWUSR | S_IRGRP) != 0) {
-      throw std::runtime_error("cannot set Prometheus file permissions: " +
+      throw std::runtime_error("cannot set observer file permissions: " +
                                std::string(std::strerror(errno)));
     }
     write_all(temporary.get(), contents);
     if (::fsync(temporary.get()) != 0) {
-      throw std::runtime_error("cannot sync Prometheus temporary file: " +
+      throw std::runtime_error("cannot sync observer temporary file: " +
                                std::string(std::strerror(errno)));
     }
     if (::rename(temporary_path.c_str(), destination.c_str()) != 0) {
-      throw std::runtime_error("cannot atomically replace Prometheus output: " +
+      throw std::runtime_error("cannot atomically replace observer output: " +
                                std::string(std::strerror(errno)));
     }
     renamed = true;
     FileDescriptor directory_descriptor(
         ::open(directory.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC));
     if (!directory_descriptor.valid() || ::fsync(directory_descriptor.get()) != 0) {
-      throw std::runtime_error("cannot sync Prometheus output directory: " +
+      throw std::runtime_error("cannot sync observer output directory: " +
                                std::string(std::strerror(errno)));
     }
   } catch (...) {
@@ -1141,6 +1274,25 @@ int run_self_test() {
   } catch (const std::exception&) {
   }
 
+  try {
+    const std::vector<std::string> player_ids = parse_player_ids(
+        R"({"ignored":{"nested":true},"players":[{"name":"nickname","iP":"192.0.2.1","userId":"steam_2"},{"accountName":"not-an-id","userId":"steam_1"}]})");
+    check(player_ids ==
+              std::vector<std::string>({"steam_1", "steam_2"}),
+          "JSON players extracts and sorts only userId values");
+    check(make_player_snapshot(42.5, player_ids) ==
+              "PALWORLD_PLAYER_SNAPSHOT_V1\nuptime=42.5\nid=steam_1\nid=steam_2\n",
+          "player snapshot excludes nicknames and network details");
+  } catch (const std::exception& error) {
+    check(false, std::string("valid players JSON parser case: ") + error.what());
+  }
+  try {
+    static_cast<void>(
+        parse_player_ids(R"({"players":[{"userId":"bad id"}]})"));
+    check(false, "JSON players rejects unsafe userId values");
+  } catch (const std::exception&) {
+  }
+
   check(nearly_equal(percentile({1.0, 2.0, 3.0, 4.0}, 0.50), 2.5),
         "p50 interpolation");
   check(nearly_equal(percentile({4.0, 1.0, 3.0, 2.0}, 0.95), 3.85),
@@ -1164,7 +1316,7 @@ int run_observer(const Config& config) {
     try {
       const std::string password = read_password(config.credential_path);
       const ServerMetrics server =
-          parse_server_metrics(fetch_metrics_json(config, password));
+          parse_server_metrics(fetch_rest_json(config, password, "metrics"));
       const auto now = SteadyClock::now();
       const CgroupMetrics cgroup = read_cgroup_metrics();
       const double anonymous_memory_mib =
@@ -1183,6 +1335,15 @@ int run_observer(const Config& config) {
       atomic_write(config.output_path,
                    make_prometheus_text(server, cgroup, derived,
                                         history.size()));
+      try {
+        const std::vector<std::string> player_ids = parse_player_ids(
+            fetch_rest_json(config, password, "players"));
+        atomic_write(config.player_snapshot_path,
+                     make_player_snapshot(server.uptime, player_ids));
+      } catch (const std::exception& error) {
+        std::cerr << "palworld-observer: player snapshot failed; retrying: "
+                  << error.what() << '\n';
+      }
     } catch (const std::exception& error) {
       std::cerr << "palworld-observer: observation failed; retrying: "
                 << error.what() << '\n';

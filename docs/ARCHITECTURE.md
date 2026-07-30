@@ -43,8 +43,8 @@ updater worktree ── fingerprint ── staging release
 - `palworld`: Saved, 전용 HOME, health state, Box64 cache만 기록
 - `palworld-updater`: 격리된 worktree와 staging만 기록
 - `palworld-backup`: supplementary group 없이 ACL을 통해 Saved만 읽고 별도 backup 영역만 기록; 관리자 credential과 유지보수 lock은 접근할 수 없음
-- `palworld-observer`: Saved 접근 없이 loopback REST와 read-only cgroup 수치만 읽고 자체 Prometheus textfile만 기록
-- `palworld-discord`: observer textfile만 읽고, 전용 runtime 요청 파일을 통해 고정된 업데이트·재기동 unit만 활성화
+- `palworld-observer`: Saved 접근 없이 loopback REST와 read-only cgroup 수치만 읽고 자체 Prometheus textfile 및 `userId` 전용 스냅샷만 기록
+- `palworld-discord`: observer의 성능값과 정제된 `userId` 스냅샷만 읽고, 전용 runtime 요청 파일을 통해 고정된 업데이트·재기동 unit만 활성화
 - `root`: 릴리스 승격, systemd 제어, credential 설치
 
 `palworld.service`의 MainPID는 launcher가 `exec box64 ...`로 교체되므로 systemd가 실제 변환 프로세스와 전체 cgroup을 추적합니다.
