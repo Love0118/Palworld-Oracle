@@ -1,15 +1,16 @@
 # Discord 관리 봇
 
-Discord 봇은 등록한 길드와 채널에서만 세 개의 slash command를 제공합니다.
+Discord 봇은 등록한 길드와 채널에서만 다음 slash command를 제공합니다.
 
 - `/pal status`: 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
 - `/pal restart confirm:True`: 업데이트 확인 후 안전한 서버 재기동
+- `/pal escape player:...`: 닉네임·Steam ID 목록에서 버그에 걸린 플레이어를 선택해 강제 재접속
 - `/pal log-channel channel:#채널`: 관리 명령 기록을 남길 채널 지정
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
 `serverfps`를 **TPS 대체 지표**로 명시해 표시합니다. 봇은 네이티브 observer가
-만든 Prometheus 파일과 `userId` 전용 스냅샷만 읽으며 REST 관리자 비밀번호에는
-접근하지 않습니다.
+만든 Prometheus 파일, `userId` 전용 접속 스냅샷, 탈출 선택 목록용 닉네임·`userId`
+스냅샷만 읽으며 REST 관리자 비밀번호에는 접근하지 않습니다.
 
 ## Discord 애플리케이션 준비
 
@@ -49,6 +50,23 @@ sudo palworldctl discord status
 sudo palworldctl discord logs
 ```
 
+## 플레이어 탈출
+
+`/pal escape`는 버그에 걸려 긴급 탈출을 사용할 수 없는 **온라인** 플레이어를
+안전하게 강제 재접속시키는 관리 명령입니다. 게임 데이터나 인벤토리를 삭제하지
+않으며, 재접속이 완료된 뒤 클라이언트 물리 상태가 다시 초기화됩니다. `player`
+입력란을 선택하면 현재 온라인 플레이어의 닉네임과 Steam ID가 함께 표시되므로
+대상을 고르면 됩니다.
+
+```text
+/pal escape player:광주전남의왕심재윤의부경대시위대작전 · steam_76561198863908214
+```
+
+명령은 재기동 권한과 같은 관리 역할 또는 Discord Administrator만 실행할 수
+있고, 등록된 관리 채널에서만 동작합니다. 봇은 직접 REST 자격 증명에 접근하지
+않습니다. 별도 저권한 systemd 서비스가 한 번의 검증된 요청만 처리해 해당
+플레이어의 재접속을 요청합니다.
+
 ## 명령 로그 채널
 
 Discord 서버 소유자 또는 Administrator가 등록된 Discord 서버의 어느 채널에서든
@@ -66,9 +84,10 @@ Discord 서버 소유자 또는 Administrator가 등록된 Discord 서버의 어
 로그 전송 실패와 관계없이 계속 동작합니다.
 
 플레이어가 접속하면 같은 채널에 현재 접속 인원과 REST가 제공하는 `userId`를
-기록합니다. 게임 닉네임, 계정명, IP, 위치와 ping은 observer 단계에서 버리므로
-Discord 봇에 전달되지 않습니다. 관측 주기가 10초이므로 접속 로그는 최대 약
-10초 늦게 표시될 수 있습니다.
+기록합니다. `/pal escape` 선택 목록을 위해 observer는 온라인 플레이어의 게임
+닉네임과 `userId`만 Discord 봇에 전달합니다. 계정명, IP, 위치와 ping은 observer
+단계에서 버립니다. 관측 주기가 10초이므로 접속 로그와 선택 목록은 최대 약 10초
+늦을 수 있습니다.
 
 ## 재기동과 업데이트
 

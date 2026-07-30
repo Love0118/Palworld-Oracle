@@ -19,6 +19,7 @@ fi
 ./mods/AwayBaseOptimizer/run-static-tests.sh
 ./tests/firewall_rules.sh
 ./tests/rest_request.sh
+./tests/escape_player.sh
 
 python3 - <<'PY'
 import ast

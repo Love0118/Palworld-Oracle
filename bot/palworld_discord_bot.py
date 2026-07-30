@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 import math
 import os
@@ -12,6 +14,7 @@ import secrets
 import stat
 import time
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 
 import discord
@@ -33,9 +36,12 @@ MAINTENANCE_UNIT = "palworld-maintenance-restart.service"
 SYSTEMCTL = "/usr/bin/systemctl"
 READY_PATH = Path("/run/palworld-discord/ready")
 RESTART_REQUEST_PATH = Path("/run/palworld-discord/restart.request")
+ESCAPE_REQUEST_PATH = Path("/run/palworld-discord/escape.request")
 LOG_CHANNEL_PATH = Path("/var/lib/palworld-discord/log-channel-id")
 PLAYER_ID_PATTERN = re.compile(r"[!-~]{1,128}")
+ESCAPE_PLAYER_ID_PATTERN = re.compile(r"steam_[0-9]{17}")
 PLAYER_SNAPSHOT_MAX_BYTES = 16 * 1024
+PLAYER_DIRECTORY_MAX_BYTES = 16 * 1024
 
 
 def required_snowflake(name: str) -> int:
@@ -197,6 +203,72 @@ def read_player_snapshot(path: Path) -> tuple[float, frozenset[str], float]:
     return server_uptime, frozenset(player_ids), metadata.st_mtime
 
 
+@dataclass(frozen=True)
+class PlayerDirectoryEntry:
+    user_id: str
+    name: str
+
+
+def read_player_directory(
+    path: Path,
+) -> tuple[float, tuple[PlayerDirectoryEntry, ...], float]:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("player directory is not a regular file")
+        if metadata.st_size > PLAYER_DIRECTORY_MAX_BYTES:
+            raise ValueError("player directory exceeds the size limit")
+        chunks: list[bytes] = []
+        size = 0
+        while True:
+            chunk = os.read(descriptor, 4096)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > PLAYER_DIRECTORY_MAX_BYTES:
+                raise ValueError("player directory exceeds the size limit")
+            chunks.append(chunk)
+    finally:
+        os.close(descriptor)
+
+    lines = b"".join(chunks).decode("utf-8").splitlines()
+    if len(lines) < 2 or lines[0] != "PALWORLD_PLAYER_DIRECTORY_V1":
+        raise ValueError("player directory header is invalid")
+    if not lines[1].startswith("uptime="):
+        raise ValueError("player directory uptime is missing")
+    server_uptime = float(lines[1].removeprefix("uptime="))
+    if not math.isfinite(server_uptime) or server_uptime < 0:
+        raise ValueError("player directory uptime is invalid")
+
+    players: list[PlayerDirectoryEntry] = []
+    player_ids: set[str] = set()
+    for line in lines[2:]:
+        prefix, separator, encoded_name = line.partition(" name_b64=")
+        if not separator or not prefix.startswith("id="):
+            raise ValueError("player directory entry is invalid")
+        player_id = prefix.removeprefix("id=")
+        if not PLAYER_ID_PATTERN.fullmatch(player_id):
+            raise ValueError("player directory userId is invalid")
+        if player_id in player_ids:
+            raise ValueError("player directory repeats a userId")
+        try:
+            name = base64.b64decode(encoded_name, validate=True).decode("utf-8")
+        except (binascii.Error, UnicodeError) as error:
+            raise ValueError("player directory nickname is invalid") from error
+        if not name or len(name) > 256 or any(
+            ord(character) < 0x20 or ord(character) == 0x7F
+            for character in name
+        ):
+            raise ValueError("player directory nickname is invalid")
+        player_ids.add(player_id)
+        players.append(PlayerDirectoryEntry(user_id=player_id, name=name))
+    return server_uptime, tuple(players), metadata.st_mtime
+
+
 GUILD_ID = required_snowflake("PALWORLD_DISCORD_GUILD_ID")
 CHANNEL_ID = required_snowflake("PALWORLD_DISCORD_CHANNEL_ID")
 ADMIN_ROLE_IDS = parse_snowflake_list(
@@ -220,11 +292,20 @@ PLAYER_SNAPSHOT_PATH = Path(
 PLAYER_SNAPSHOT_MAX_AGE = positive_integer(
     "PALWORLD_DISCORD_PLAYER_SNAPSHOT_MAX_AGE_SECONDS", 30, 3600
 )
+PLAYER_DIRECTORY_PATH = Path(
+    os.environ.get(
+        "PALWORLD_DISCORD_PLAYER_DIRECTORY_FILE",
+        "/var/lib/palworld-observer/player-directory.snapshot",
+    )
+)
 PLAYER_WATCH_INTERVAL = positive_integer(
     "PALWORLD_DISCORD_PLAYER_WATCH_INTERVAL_SECONDS", 2, 60
 )
 COMMAND_TIMEOUT = positive_integer(
     "PALWORLD_DISCORD_COMMAND_TIMEOUT_SECONDS", 840, 840
+)
+ESCAPE_TIMEOUT = positive_integer(
+    "PALWORLD_DISCORD_ESCAPE_TIMEOUT_SECONDS", 30, 120
 )
 
 
@@ -597,6 +678,7 @@ class PalworldClient(discord.Client):
 client = PalworldClient()
 pal = app_commands.Group(name="pal", description="Palworld 서버 관리")
 restart_in_progress = False
+escape_in_progress = False
 
 
 def journal_command_invocation(
@@ -699,6 +781,93 @@ async def audit_command(
             "Discord command audit delivery failed (%s); journal record retained",
             type(error).__name__,
         )
+
+
+def write_escape_request(player_id: str) -> None:
+    """Atomically publish a bounded player-reconnect request for systemd."""
+    if not ESCAPE_PLAYER_ID_PATTERN.fullmatch(player_id):
+        raise ValueError("player userId is invalid")
+
+    temporary = ESCAPE_REQUEST_PATH.with_name(
+        f".escape.{os.getpid()}.{secrets.token_hex(8)}"
+    )
+    payload = f"PALWORLD_ESCAPE_REQUEST_V1\nuser_id={player_id}\n".encode("ascii")
+    published = False
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC,
+            0o600,
+        )
+        try:
+            written = 0
+            while written < len(payload):
+                count = os.write(descriptor, payload[written:])
+                if count == 0:
+                    raise OSError("could not write escape request")
+                written += count
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+        # link(2) is an atomic no-replace publish. Replacing an existing
+        # request could silently change the player selected by another admin.
+        os.link(temporary, ESCAPE_REQUEST_PATH, follow_symlinks=False)
+        published = True
+        directory = os.open(
+            ESCAPE_REQUEST_PATH.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+        )
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+        if not published:
+            # Do not remove ESCAPE_REQUEST_PATH: another request may already
+            # be waiting and os.link() reports that race with FileExistsError.
+            pass
+
+
+def escape_choice_label(player: PlayerDirectoryEntry) -> str:
+    suffix = f" · {player.user_id}"
+    maximum_name_length = 100 - len(suffix)
+    name = player.name
+    if len(name) > maximum_name_length:
+        name = f"{name[: maximum_name_length - 1]}…"
+    return f"{name}{suffix}"
+
+
+async def escape_player_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    if (
+        interaction.guild_id != GUILD_ID
+        or interaction.channel_id != CHANNEL_ID
+        or not is_management_admin(interaction)
+    ):
+        return []
+    try:
+        _, players, modified = read_player_directory(PLAYER_DIRECTORY_PATH)
+        snapshot_age = time.time() - modified
+        if snapshot_age < -5 or snapshot_age > PLAYER_SNAPSHOT_MAX_AGE:
+            return []
+    except (OSError, UnicodeError, ValueError):
+        return []
+
+    needle = current.casefold()
+    matching_players = [
+        player
+        for player in players
+        if ESCAPE_PLAYER_ID_PATTERN.fullmatch(player.user_id)
+        and (needle in player.name.casefold() or needle in player.user_id.casefold())
+    ]
+    matching_players.sort(key=lambda player: (player.name.casefold(), player.user_id))
+    return [
+        app_commands.Choice(name=escape_choice_label(player), value=player.user_id)
+        for player in matching_players[:25]
+    ]
 
 
 @pal.command(name="status", description="서버 CPU, RAM, 접속자와 성능 상태를 확인합니다.")
@@ -894,6 +1063,168 @@ async def restart_command(
         )
     finally:
         restart_in_progress = False
+
+
+@pal.command(
+    name="escape",
+    description="버그에 걸린 온라인 플레이어를 강제 재접속시킵니다.",
+)
+@app_commands.describe(player="닉네임과 Steam ID가 표시되는 목록에서 선택하세요.")
+@app_commands.autocomplete(player=escape_player_autocomplete)
+async def escape_command(
+    interaction: discord.Interaction, player: str
+) -> None:
+    global escape_in_progress
+    command_name = "/pal escape"
+    journal_command_invocation(interaction, command_name)
+    if not await interaction_in_scope(interaction, command_name):
+        return
+    if not is_management_admin(interaction):
+        await interaction.response.send_message(
+            "이 명령어를 실행할 관리 역할이 없습니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "관리 권한이 없는 사용자가 탈출 명령을 실행했습니다.",
+        )
+        return
+    if not ESCAPE_PLAYER_ID_PATTERN.fullmatch(player):
+        await interaction.response.send_message(
+            "온라인 플레이어 목록에서 Steam ID를 선택해 주세요.",
+            ephemeral=True,
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "유효하지 않은 Palworld userId가 입력됐습니다.",
+        )
+        return
+    if escape_in_progress:
+        await interaction.response.send_message(
+            "이미 다른 탈출 요청을 처리 중입니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "이미 다른 탈출 요청을 처리 중입니다.",
+        )
+        return
+
+    escape_in_progress = True
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        before = await systemctl_properties(
+            "palworld-escape.service",
+            "ExecMainStartTimestampMonotonic",
+        )
+        before_start = int(before.get("ExecMainStartTimestampMonotonic", "0") or 0)
+        try:
+            write_escape_request(player)
+        except FileExistsError:
+            await interaction.edit_original_response(
+                content="이미 다른 탈출 요청이 대기 중입니다. 잠시 후 다시 시도해 주세요."
+            )
+            await audit_command(
+                interaction,
+                command_name,
+                "거부됨",
+                "이미 다른 탈출 요청이 대기 중입니다.",
+            )
+            return
+
+        await audit_command(
+            interaction,
+            command_name,
+            "요청됨",
+            f"`{player}` 플레이어의 강제 재접속 요청을 접수했습니다.",
+        )
+
+        deadline = asyncio.get_running_loop().time() + ESCAPE_TIMEOUT
+        seen_start = False
+        while asyncio.get_running_loop().time() < deadline:
+            state = await systemctl_properties(
+                "palworld-escape.service",
+                "ActiveState",
+                "Result",
+                "ExecMainStartTimestampMonotonic",
+            )
+            start_timestamp = int(
+                state.get("ExecMainStartTimestampMonotonic", "0") or 0
+            )
+            if start_timestamp > before_start:
+                seen_start = True
+            active_state = state.get("ActiveState", "unknown")
+            if seen_start and active_state == "failed":
+                await interaction.edit_original_response(
+                    content="탈출 처리에 실패했습니다. 대상이 온라인인지 확인해 주세요."
+                )
+                await audit_command(
+                    interaction,
+                    command_name,
+                    "실패",
+                    f"`{player}` 플레이어의 탈출 처리 서비스가 실패했습니다.",
+                )
+                return
+            if seen_start and active_state == "inactive":
+                if state.get("Result") == "success":
+                    await interaction.edit_original_response(
+                        content=(
+                            "강제 재접속을 요청했습니다. 대상 플레이어는 다시 접속해 "
+                            "버그가 풀렸는지 확인해 주세요."
+                        )
+                    )
+                    await audit_command(
+                        interaction,
+                        command_name,
+                        "완료",
+                        f"`{player}` 플레이어의 강제 재접속을 요청했습니다.",
+                    )
+                else:
+                    await interaction.edit_original_response(
+                        content="탈출 처리에 실패했습니다. 서버 로그를 확인해 주세요."
+                    )
+                    await audit_command(
+                        interaction,
+                        command_name,
+                        "실패",
+                        f"`{player}` 플레이어의 탈출 처리 결과가 실패했습니다.",
+                    )
+                return
+            await asyncio.sleep(1)
+
+        if not seen_start:
+            ESCAPE_REQUEST_PATH.unlink(missing_ok=True)
+        await interaction.edit_original_response(
+            content="탈출 요청을 처리 중입니다. 잠시 후 대상 플레이어의 접속 상태를 확인해 주세요."
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "진행 중",
+            f"`{player}` 플레이어의 탈출 처리가 아직 진행 중입니다.",
+        )
+    except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
+        LOGGER.error("could not request or monitor player escape: %s", error)
+        try:
+            ESCAPE_REQUEST_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if interaction.response.is_done():
+            await interaction.edit_original_response(
+                content="탈출 서비스를 호출하지 못했습니다."
+            )
+        await audit_command(
+            interaction,
+            command_name,
+            "실패",
+            f"`{player}` 플레이어의 탈출 서비스를 호출하거나 상태를 확인하지 못했습니다.",
+        )
+    finally:
+        escape_in_progress = False
 
 
 @pal.command(

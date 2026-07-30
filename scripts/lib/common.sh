@@ -106,6 +106,7 @@ load_config() {
   : "${PALWORLD_OBSERVER_INTERVAL_SECONDS:=10}"
   : "${PALWORLD_OBSERVER_OUTPUT:=/var/lib/palworld-observer/palworld.prom}"
   : "${PALWORLD_OBSERVER_PLAYERS_OUTPUT:=/var/lib/palworld-observer/players.snapshot}"
+  : "${PALWORLD_OBSERVER_PLAYER_DIRECTORY_OUTPUT:=/var/lib/palworld-observer/player-directory.snapshot}"
   : "${BOX64_BIN:=/usr/local/bin/box64}"
   : "${DEPOT_DOWNLOADER_BIN:=$PALWORLD_ROOT/tools/depotdownloader/current/DepotDownloader}"
 
@@ -166,6 +167,7 @@ validate_config_paths() {
   validate_descendant_path PALWORLD_ADMIN_PASSWORD_FILE "$PALWORLD_ADMIN_PASSWORD_FILE" /etc/palworld
   validate_descendant_path PALWORLD_OBSERVER_OUTPUT "$PALWORLD_OBSERVER_OUTPUT" /var/lib
   validate_descendant_path PALWORLD_OBSERVER_PLAYERS_OUTPUT "$PALWORLD_OBSERVER_PLAYERS_OUTPUT" /var/lib
+  validate_descendant_path PALWORLD_OBSERVER_PLAYER_DIRECTORY_OUTPUT "$PALWORLD_OBSERVER_PLAYER_DIRECTORY_OUTPUT" /var/lib
   validate_descendant_path XDG_CACHE_HOME "${XDG_CACHE_HOME:-/var/cache/palworld}" /var/cache
 
   [[ "$PALWORLD_USER:$PALWORLD_GROUP" == palworld:palworld ]] \
@@ -190,6 +192,7 @@ validate_config_paths() {
     && "$(normalized_path "$PALWORLD_ADMIN_PASSWORD_FILE")" == /etc/palworld/credentials/admin-password \
     && "$(normalized_path "$PALWORLD_OBSERVER_OUTPUT")" == /var/lib/palworld-observer/palworld.prom \
     && "$(normalized_path "$PALWORLD_OBSERVER_PLAYERS_OUTPUT")" == /var/lib/palworld-observer/players.snapshot \
+    && "$(normalized_path "$PALWORLD_OBSERVER_PLAYER_DIRECTORY_OUTPUT")" == /var/lib/palworld-observer/player-directory.snapshot \
     && "$(normalized_path "${XDG_CACHE_HOME:-/var/cache/palworld}")" == /var/cache/palworld ]] \
     || die "Managed paths are fixed to the hardened layout; use bind mounts for separate storage."
 }

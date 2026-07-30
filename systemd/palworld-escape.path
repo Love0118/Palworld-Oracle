@@ -1,0 +1,9 @@
+[Unit]
+Description=Accept Palworld player escape requests from the Discord bot
+
+[Path]
+PathExists=/run/palworld-discord/escape.request
+Unit=palworld-escape.service
+
+[Install]
+WantedBy=multi-user.target

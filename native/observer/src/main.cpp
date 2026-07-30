@@ -56,6 +56,8 @@ struct Config {
       "/var/lib/palworld-observer/palworld.prom"};
   std::filesystem::path player_snapshot_path{
       "/var/lib/palworld-observer/players.snapshot"};
+  std::filesystem::path player_directory_path{
+      "/var/lib/palworld-observer/player-directory.snapshot"};
   std::chrono::seconds interval{10};
 };
 
@@ -87,6 +89,11 @@ struct DerivedMetrics {
   double frame_time_p95_ms{};
   double frame_time_p99_ms{};
   std::optional<double> anonymous_memory_mib_per_hour;
+};
+
+struct PlayerRecord {
+  std::string user_id;
+  std::string name;
 };
 
 std::string get_environment(const char* name, std::string fallback) {
@@ -151,6 +158,10 @@ Config load_config() {
       "PALWORLD_OBSERVER_PLAYERS_OUTPUT",
       config.player_snapshot_path.string());
   config.player_snapshot_path = player_snapshot;
+  const std::string player_directory = get_environment(
+      "PALWORLD_OBSERVER_PLAYER_DIRECTORY_OUTPUT",
+      config.player_directory_path.string());
+  config.player_directory_path = player_directory;
 
   const std::string credentials_directory =
       get_environment("CREDENTIALS_DIRECTORY", "");
@@ -182,6 +193,10 @@ Config load_config() {
   }
   if (config.player_snapshot_path.empty()) {
     throw std::runtime_error("PALWORLD_OBSERVER_PLAYERS_OUTPUT is empty");
+  }
+  if (config.player_directory_path.empty()) {
+    throw std::runtime_error(
+        "PALWORLD_OBSERVER_PLAYER_DIRECTORY_OUTPUT is empty");
   }
   return config;
 }
@@ -548,6 +563,13 @@ bool valid_player_id(std::string_view value) {
   });
 }
 
+bool valid_player_name(std::string_view value) {
+  if (value.empty() || value.size() > 512U) {
+    return false;
+  }
+  return !contains_control_character(value);
+}
+
 class JsonCursor {
  public:
   explicit JsonCursor(std::string_view input) : input_(input) {}
@@ -607,10 +629,10 @@ class JsonCursor {
             *max_player_num, *uptime};
   }
 
-  std::vector<std::string> parse_player_ids() {
+  std::vector<PlayerRecord> parse_players() {
     skip_whitespace();
     expect('{');
-    std::optional<std::vector<std::string>> player_ids;
+    std::optional<std::vector<PlayerRecord>> players;
     skip_whitespace();
     if (consume('}')) {
       throw std::runtime_error("REST players object is empty");
@@ -621,10 +643,10 @@ class JsonCursor {
       expect(':');
       skip_whitespace();
       if (key == "players") {
-        if (player_ids.has_value()) {
+        if (players.has_value()) {
           throw std::runtime_error("REST players JSON repeats players");
         }
-        player_ids = parse_player_array();
+        players = parse_player_array();
       } else {
         skip_value();
       }
@@ -639,39 +661,46 @@ class JsonCursor {
     if (position_ != input_.size()) {
       throw std::runtime_error("trailing data after REST players JSON");
     }
-    if (!player_ids.has_value()) {
+    if (!players.has_value()) {
       throw std::runtime_error("REST players JSON is missing players");
     }
-    std::sort(player_ids->begin(), player_ids->end());
-    if (std::adjacent_find(player_ids->begin(), player_ids->end()) !=
-        player_ids->end()) {
+    std::sort(players->begin(), players->end(),
+              [](const PlayerRecord& left, const PlayerRecord& right) {
+                return left.user_id < right.user_id;
+              });
+    if (std::adjacent_find(
+            players->begin(), players->end(),
+            [](const PlayerRecord& left, const PlayerRecord& right) {
+              return left.user_id == right.user_id;
+            }) != players->end()) {
       throw std::runtime_error("REST players JSON contains duplicate userId");
     }
-    return std::move(*player_ids);
+    return std::move(*players);
   }
 
  private:
-  std::vector<std::string> parse_player_array() {
-    std::vector<std::string> player_ids;
+  std::vector<PlayerRecord> parse_player_array() {
+    std::vector<PlayerRecord> players;
     expect('[');
     skip_whitespace();
     if (consume(']')) {
-      return player_ids;
+      return players;
     }
     while (true) {
-      player_ids.push_back(parse_player_object());
+      players.push_back(parse_player_object());
       skip_whitespace();
       if (consume(']')) {
-        return player_ids;
+        return players;
       }
       expect(',');
       skip_whitespace();
     }
   }
 
-  std::string parse_player_object() {
+  PlayerRecord parse_player_object() {
     expect('{');
     std::optional<std::string> player_id;
+    std::optional<std::string> player_name;
     skip_whitespace();
     if (consume('}')) {
       throw std::runtime_error("REST player object is empty");
@@ -686,6 +715,11 @@ class JsonCursor {
           throw std::runtime_error("REST player object repeats userId");
         }
         player_id = parse_string();
+      } else if (key == "name") {
+        if (player_name.has_value()) {
+          throw std::runtime_error("REST player object repeats name");
+        }
+        player_name = parse_string();
       } else {
         skip_value();
       }
@@ -696,10 +730,11 @@ class JsonCursor {
       expect(',');
       skip_whitespace();
     }
-    if (!player_id.has_value() || !valid_player_id(*player_id)) {
-      throw std::runtime_error("REST player object has an invalid userId");
+    if (!player_id.has_value() || !valid_player_id(*player_id) ||
+        !player_name.has_value() || !valid_player_name(*player_name)) {
+      throw std::runtime_error("REST player object has invalid identity data");
     }
-    return std::move(*player_id);
+    return {std::move(*player_id), std::move(*player_name)};
   }
 
   void skip_whitespace() {
@@ -914,8 +949,8 @@ ServerMetrics parse_server_metrics(std::string_view json) {
   return JsonCursor(json).parse_metrics();
 }
 
-std::vector<std::string> parse_player_ids(std::string_view json) {
-  return JsonCursor(json).parse_player_ids();
+std::vector<PlayerRecord> parse_players(std::string_view json) {
+  return JsonCursor(json).parse_players();
 }
 
 std::uint64_t parse_single_counter(const std::filesystem::path& path) {
@@ -1147,12 +1182,24 @@ std::string make_prometheus_text(const ServerMetrics& server,
 }
 
 std::string make_player_snapshot(
-    double server_uptime, const std::vector<std::string>& player_ids) {
+    double server_uptime, const std::vector<PlayerRecord>& players) {
   std::ostringstream output;
   output << "PALWORLD_PLAYER_SNAPSHOT_V1\n"
          << "uptime=" << std::setprecision(12) << server_uptime << '\n';
-  for (const std::string& player_id : player_ids) {
-    output << "id=" << player_id << '\n';
+  for (const PlayerRecord& player : players) {
+    output << "id=" << player.user_id << '\n';
+  }
+  return output.str();
+}
+
+std::string make_player_directory_snapshot(
+    double server_uptime, const std::vector<PlayerRecord>& players) {
+  std::ostringstream output;
+  output << "PALWORLD_PLAYER_DIRECTORY_V1\n"
+         << "uptime=" << std::setprecision(12) << server_uptime << '\n';
+  for (const PlayerRecord& player : players) {
+    output << "id=" << player.user_id
+           << " name_b64=" << base64_encode(player.name) << '\n';
   }
   return output.str();
 }
@@ -1275,20 +1322,27 @@ int run_self_test() {
   }
 
   try {
-    const std::vector<std::string> player_ids = parse_player_ids(
-        R"({"ignored":{"nested":true},"players":[{"name":"nickname","iP":"192.0.2.1","userId":"steam_2"},{"accountName":"not-an-id","userId":"steam_1"}]})");
-    check(player_ids ==
-              std::vector<std::string>({"steam_1", "steam_2"}),
-          "JSON players extracts and sorts only userId values");
-    check(make_player_snapshot(42.5, player_ids) ==
+    const std::vector<PlayerRecord> players = parse_players(
+        R"({"ignored":{"nested":true},"players":[{"name":"nickname","iP":"192.0.2.1","userId":"steam_2"},{"name":"other player","accountName":"not-an-id","userId":"steam_1"}]})");
+    check(players.size() == 2U && players[0].user_id == "steam_1" &&
+              players[0].name == "other player" &&
+              players[1].user_id == "steam_2" &&
+              players[1].name == "nickname",
+          "JSON players extracts, sorts, and limits identity data");
+    check(make_player_snapshot(42.5, players) ==
               "PALWORLD_PLAYER_SNAPSHOT_V1\nuptime=42.5\nid=steam_1\nid=steam_2\n",
           "player snapshot excludes nicknames and network details");
+    check(make_player_directory_snapshot(42.5, players) ==
+              "PALWORLD_PLAYER_DIRECTORY_V1\nuptime=42.5\n"
+              "id=steam_1 name_b64=b3RoZXIgcGxheWVy\n"
+              "id=steam_2 name_b64=bmlja25hbWU=\n",
+          "player directory keeps only userId and encoded nickname");
   } catch (const std::exception& error) {
     check(false, std::string("valid players JSON parser case: ") + error.what());
   }
   try {
     static_cast<void>(
-        parse_player_ids(R"({"players":[{"userId":"bad id"}]})"));
+        parse_players(R"({"players":[{"name":"nickname","userId":"bad id"}]})"));
     check(false, "JSON players rejects unsafe userId values");
   } catch (const std::exception&) {
   }
@@ -1336,10 +1390,12 @@ int run_observer(const Config& config) {
                    make_prometheus_text(server, cgroup, derived,
                                         history.size()));
       try {
-        const std::vector<std::string> player_ids = parse_player_ids(
+        const std::vector<PlayerRecord> players = parse_players(
             fetch_rest_json(config, password, "players"));
         atomic_write(config.player_snapshot_path,
-                     make_player_snapshot(server.uptime, player_ids));
+                     make_player_snapshot(server.uptime, players));
+        atomic_write(config.player_directory_path,
+                     make_player_directory_snapshot(server.uptime, players));
       } catch (const std::exception& error) {
         std::cerr << "palworld-observer: player snapshot failed; retrying: "
                   << error.what() << '\n';
