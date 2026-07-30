@@ -567,11 +567,13 @@ class PalworldClient(discord.Client):
                 await task
         await super().close()
 
-    async def send_player_connection_log(
-        self, player_id: str, current_players: int
+    async def send_player_presence_log(
+        self, player_id: str, current_players: int, connected: bool
     ) -> None:
+        event_name = "connected" if connected else "disconnected"
         LOGGER.info(
-            "player_connected user_id=%s current_players=%d",
+            "player_%s user_id=%s current_players=%d",
+            event_name,
             player_id,
             current_players,
         )
@@ -599,12 +601,12 @@ class PalworldClient(discord.Client):
                 discord.utils.escape_mentions(player_id)
             )
             embed = discord.Embed(
-                title="Palworld 플레이어 접속",
-                colour=discord.Colour.green(),
+                title=("Palworld 플레이어 접속" if connected else "Palworld 플레이어 퇴장"),
+                colour=(discord.Colour.green() if connected else discord.Colour.orange()),
                 timestamp=discord.utils.utcnow(),
             )
             embed.add_field(
-                name="접속 ID (userId)", value=safe_player_id, inline=False
+                name="플레이어 ID (userId)", value=safe_player_id, inline=False
             )
             embed.add_field(
                 name="현재 접속 인원",
@@ -620,7 +622,7 @@ class PalworldClient(discord.Client):
             )
         except Exception as error:
             LOGGER.warning(
-                "Discord player connection log delivery failed (%s); "
+                "Discord player presence log delivery failed (%s); "
                 "journal record retained",
                 type(error).__name__,
             )
@@ -648,17 +650,27 @@ class PalworldClient(discord.Client):
                     )
                 else:
                     previous_ids = self.known_player_ids
-                    if (
+                    server_restarted = (
                         self.known_server_uptime is not None
                         and server_uptime + 1 < self.known_server_uptime
-                    ):
+                    )
+                    if server_restarted:
                         previous_ids = frozenset()
                     joined_player_ids = sorted(player_ids - previous_ids)
+                    left_player_ids = (
+                        []
+                        if server_restarted
+                        else sorted(previous_ids - player_ids)
+                    )
                     self.known_player_ids = player_ids
                     self.known_server_uptime = server_uptime
+                    for player_id in left_player_ids:
+                        await self.send_player_presence_log(
+                            player_id, len(player_ids), connected=False
+                        )
                     for player_id in joined_player_ids:
-                        await self.send_player_connection_log(
-                            player_id, len(player_ids)
+                        await self.send_player_presence_log(
+                            player_id, len(player_ids), connected=True
                         )
             except FileNotFoundError:
                 error_key = "missing"
