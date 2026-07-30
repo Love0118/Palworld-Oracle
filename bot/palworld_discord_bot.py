@@ -845,7 +845,6 @@ async def escape_player_autocomplete(
     if (
         interaction.guild_id != GUILD_ID
         or interaction.channel_id != CHANNEL_ID
-        or not is_management_admin(interaction)
     ):
         return []
     try:
@@ -1078,17 +1077,6 @@ async def escape_command(
     command_name = "/pal escape"
     journal_command_invocation(interaction, command_name)
     if not await interaction_in_scope(interaction, command_name):
-        return
-    if not is_management_admin(interaction):
-        await interaction.response.send_message(
-            "이 명령어를 실행할 관리 역할이 없습니다.", ephemeral=True
-        )
-        await audit_command(
-            interaction,
-            command_name,
-            "거부됨",
-            "관리 권한이 없는 사용자가 탈출 명령을 실행했습니다.",
-        )
         return
     if not ESCAPE_PLAYER_ID_PATTERN.fullmatch(player):
         await interaction.response.send_message(
