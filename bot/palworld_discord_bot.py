@@ -25,7 +25,6 @@ from palworld_status import (
     format_cpu,
     format_duration,
     metrics_age,
-    parse_snowflake_list,
     read_prometheus,
 )
 
@@ -271,9 +270,6 @@ def read_player_directory(
 
 GUILD_ID = required_snowflake("PALWORLD_DISCORD_GUILD_ID")
 CHANNEL_ID = required_snowflake("PALWORLD_DISCORD_CHANNEL_ID")
-ADMIN_ROLE_IDS = parse_snowflake_list(
-    os.environ.get("PALWORLD_DISCORD_ADMIN_ROLE_IDS", "")
-)
 METRICS_PATH = Path(
     os.environ.get(
         "PALWORLD_DISCORD_METRICS_FILE",
@@ -367,15 +363,6 @@ async def interaction_in_configured_guild(
         )
         return False
     return True
-
-
-def is_management_admin(interaction: discord.Interaction) -> bool:
-    member = interaction.user
-    if not isinstance(member, discord.Member):
-        return False
-    if member.guild_permissions.administrator:
-        return True
-    return any(role.id in ADMIN_ROLE_IDS for role in member.roles)
 
 
 def is_audit_admin(interaction: discord.Interaction) -> bool:
@@ -512,15 +499,6 @@ class PalworldClient(discord.Client):
             channel, (discord.TextChannel, discord.VoiceChannel)
         ):
             LOGGER.error("configured Discord channel is not visible to the bot")
-            await self.close()
-            return
-        missing_roles = [
-            role_id
-            for role_id in ADMIN_ROLE_IDS
-            if guild.get_role(role_id) is None
-        ]
-        if missing_roles:
-            LOGGER.error("one or more configured Discord administrator roles are missing")
             await self.close()
             return
         member = guild.me
@@ -914,18 +892,7 @@ async def restart_command(
 ) -> None:
     global restart_in_progress
     journal_command_invocation(interaction, "/pal restart")
-    if not await interaction_in_scope(interaction, "/pal restart"):
-        return
-    if not is_management_admin(interaction):
-        await interaction.response.send_message(
-            "이 명령어를 실행할 관리 역할이 없습니다.", ephemeral=True
-        )
-        await audit_command(
-            interaction,
-            "/pal restart",
-            "거부됨",
-            "관리 권한이 없는 사용자가 실행했습니다.",
-        )
+    if not await interaction_in_configured_guild(interaction, "/pal restart"):
         return
     if not confirm:
         await interaction.response.send_message(

@@ -13,7 +13,7 @@ ARM64 네이티브 DepotDownloader가 게임 파일을 받고, Box64 DynaRec이 
 - 실행 중인 릴리스와 다운로드 작업공간 분리
 - 정상 저장/종료 후 원자적 릴리스 전환
 - REST 상태 검사, 수동 cold backup, 한국시간 05:00 업데이트 확인·재기동
-- 역할과 채널이 제한된 Discord 상태·재기동 slash command
+- Discord 상태·재기동 slash command (재기동은 등록된 서버의 모든 채널에서 가능)
 - ARM64 네이티브 C++ 성능 관측과 Prometheus textfile
 
 Palworld의 공식 ARM64 서버 바이너리가 아니라 Box64 변환 실행 방식이므로, 목표 동접과 월드 크기는 실제 부하 테스트로 확정해야 합니다.
@@ -85,7 +85,7 @@ REST로 보고하지 않으면 이전 설정을 자동 복원합니다.
 설정 변경 후에는 서버를 재시작해야 합니다.
 
 Discord에서 `/pal status`, 업데이트 포함 `/pal restart`, 버그 복구용
-`/pal escape`, 명령 기록용 `/pal log-channel`을 사용하려면 bot token, 길드·채널·관리 역할 ID를 별도로
+`/pal escape`, 명령 기록용 `/pal log-channel`을 사용하려면 bot token과 길드·채널 ID를 별도로
 등록합니다. 자세한 절차와 권한 경계는
 [Discord 관리 봇](docs/DISCORD_BOT.md)을 참고하세요.
 

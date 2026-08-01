@@ -1,11 +1,11 @@
 # Discord 관리 봇
 
-Discord 봇은 등록한 길드와 채널에서만 다음 slash command를 제공합니다.
+Discord 봇은 등록한 Discord 서버에서 다음 slash command를 제공합니다.
 
-- `/pal status`: 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
-- `/pal restart confirm:True`: 업데이트 확인 후 안전한 서버 재기동
-- `/pal escape player:...`: 닉네임·Steam ID 목록에서 버그에 걸린 플레이어를 선택해 강제 재접속
-- `/pal log-channel channel:#채널`: 관리 명령 기록을 남길 채널 지정
+- `/pal status`: 관리 채널에서 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
+- `/pal restart confirm:True`: 서버의 모든 채널에서 업데이트 확인 후 안전한 서버 재기동
+- `/pal escape player:...`: 관리 채널에서 닉네임·Steam ID 목록으로 버그에 걸린 플레이어를 선택해 강제 재접속
+- `/pal log-channel channel:#채널`: 서버 소유자 또는 Administrator가 관리 명령 기록 채널 지정
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
 `serverfps`를 **TPS 대체 지표**로 명시해 표시합니다. 봇은 네이티브 observer가
@@ -24,7 +24,7 @@ applications.commands
 
 관리 채널에서 메시지 전송과 embed 링크 권한만 부여하면 됩니다. 메시지 본문을
 읽지 않으므로 Message Content Intent는 필요하지 않습니다. Discord 개발자
-모드를 켜고 길드 ID, 관리 채널 ID, 재기동을 허용할 역할 ID를 복사합니다.
+모드를 켜고 길드 ID와 관리 채널 ID를 복사합니다.
 
 토큰은 명령행에 넣지 말고 root만 읽을 수 있는 한 줄짜리 파일로 준비합니다.
 
@@ -35,14 +35,12 @@ sudoedit /root/discord-token
 sudo palworldctl discord configure \
   --token-file /root/discord-token \
   --guild-id 123456789012345678 \
-  --channel-id 223456789012345678 \
-  --admin-role-id 323456789012345678
+  --channel-id 223456789012345678
 ```
 
-`--admin-role-id`는 여러 번 지정할 수 있습니다. Discord의 Administrator
-권한을 가진 사용자도 재기동할 수 있습니다. 별도 관리 역할이 없다면
-`--admin-role-id`를 생략하고 Administrator만 허용할 수 있습니다. 설정이
-끝나면 원본 토큰 파일은
+등록된 관리 채널에서는 서버 상태·탈출 명령을 Discord 역할과 관계없이 실행할 수
+있고, `/pal restart`는 등록된 Discord 서버의 모든 채널에서 실행할 수 있습니다.
+설정이 끝나면 원본 토큰 파일은
 안전하게 삭제하고, bot token을 회전할 때 같은 명령으로 다시 구성합니다.
 
 ```bash
@@ -91,7 +89,8 @@ observer 단계에서 버립니다. 관측 주기가 10초이므로 접속·퇴�
 
 ## 재기동과 업데이트
 
-`/pal restart`는 `confirm=True`가 있어야 실행됩니다. 봇은 전용
+`/pal restart`는 등록된 Discord 서버의 모든 채널에서 누구나 `confirm=True`로
+실행할 수 있습니다. 봇은 전용
 `/run/palworld-discord` 디렉터리에 고정된 요청 파일만 만들 수 있고,
 systemd path unit이 그 파일만 감지해 `palworld-maintenance-restart.service`를
 실행합니다. 봇 계정은 임의 systemd 명령, 게임 계정, 유지보수 그룹, REST
