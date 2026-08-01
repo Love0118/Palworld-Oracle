@@ -269,7 +269,6 @@ def read_player_directory(
 
 
 GUILD_ID = required_snowflake("PALWORLD_DISCORD_GUILD_ID")
-CHANNEL_ID = required_snowflake("PALWORLD_DISCORD_CHANNEL_ID")
 METRICS_PATH = Path(
     os.environ.get(
         "PALWORLD_DISCORD_METRICS_FILE",
@@ -327,24 +326,6 @@ async def systemctl_properties(unit: str, *properties: str) -> dict[str, str]:
         if separator:
             result[key] = value
     return result
-
-
-async def interaction_in_scope(
-    interaction: discord.Interaction, command_name: str
-) -> bool:
-    if interaction.guild_id != GUILD_ID or interaction.channel_id != CHANNEL_ID:
-        await interaction.response.send_message(
-            "이 명령어는 등록된 서버 관리 채널에서만 사용할 수 있습니다.",
-            ephemeral=True,
-        )
-        await audit_command(
-            interaction,
-            command_name,
-            "거부됨",
-            "등록된 서버 관리 채널 밖에서 실행했습니다.",
-        )
-        return False
-    return True
 
 
 async def interaction_in_configured_guild(
@@ -494,21 +475,9 @@ class PalworldClient(discord.Client):
             LOGGER.error("configured Discord guild is not visible to the bot")
             await self.close()
             return
-        channel = guild.get_channel(CHANNEL_ID)
-        if channel is None or not isinstance(
-            channel, (discord.TextChannel, discord.VoiceChannel)
-        ):
-            LOGGER.error("configured Discord channel is not visible to the bot")
-            await self.close()
-            return
         member = guild.me
         if member is None:
             LOGGER.error("could not resolve the bot guild membership")
-            await self.close()
-            return
-        permissions = channel.permissions_for(member)
-        if not permissions.send_messages or not permissions.embed_links:
-            LOGGER.error("the bot lacks send-message or embed-link permission")
             await self.close()
             return
         if self.log_channel_id is not None:
@@ -834,7 +803,6 @@ async def escape_player_autocomplete(
 ) -> list[app_commands.Choice[str]]:
     if (
         interaction.guild_id != GUILD_ID
-        or interaction.channel_id != CHANNEL_ID
     ):
         return []
     try:
@@ -862,7 +830,7 @@ async def escape_player_autocomplete(
 @pal.command(name="status", description="서버 CPU, RAM, 접속자와 성능 상태를 확인합니다.")
 async def status_command(interaction: discord.Interaction) -> None:
     journal_command_invocation(interaction, "/pal status")
-    if not await interaction_in_scope(interaction, "/pal status"):
+    if not await interaction_in_configured_guild(interaction, "/pal status"):
         return
     await interaction.response.defer(ephemeral=True, thinking=True)
     try:
@@ -1055,7 +1023,7 @@ async def escape_command(
     global escape_in_progress
     command_name = "/pal escape"
     journal_command_invocation(interaction, command_name)
-    if not await interaction_in_scope(interaction, command_name):
+    if not await interaction_in_configured_guild(interaction, command_name):
         return
     if not ESCAPE_PLAYER_ID_PATTERN.fullmatch(player):
         await interaction.response.send_message(

@@ -13,8 +13,6 @@ discord_config=/etc/palworld/discord.env
 discord_token=/etc/palworld/credentials/discord-token
 token_source=''
 guild_id=''
-channel_id=''
-admin_role_ids=()
 
 usage() {
   cat <<'EOF'
@@ -23,9 +21,6 @@ Usage: configure-discord.sh [options]
 Options:
   --token-file PATH      Read the Discord bot token from PATH.
   --guild-id ID          Restrict commands to this Discord guild.
-  --channel-id ID        Restrict commands to this Discord channel.
-  --admin-role-id ID     Allow restart for this role (repeatable, optional).
-                         Without one, Discord Administrators only.
   -h, --help             Show this help.
 EOF
 }
@@ -40,16 +35,6 @@ while (( $# > 0 )); do
     --guild-id)
       (( $# >= 2 )) || die "--guild-id requires a value"
       guild_id="$2"
-      shift 2
-      ;;
-    --channel-id)
-      (( $# >= 2 )) || die "--channel-id requires a value"
-      channel_id="$2"
-      shift 2
-      ;;
-    --admin-role-id)
-      (( $# >= 2 )) || die "--admin-role-id requires a value"
-      admin_role_ids+=("$2")
       shift 2
       ;;
     -h|--help)
@@ -70,10 +55,6 @@ validate_snowflake() {
 [[ -n "$token_source" && -r "$token_source" ]] \
   || die "--token-file must name a readable file"
 validate_snowflake guild_id "$guild_id"
-validate_snowflake channel_id "$channel_id"
-for role_id in "${admin_role_ids[@]}"; do
-  validate_snowflake admin_role_id "$role_id"
-done
 
 mapfile -t token_lines < "$token_source"
 (( ${#token_lines[@]} == 1 )) \
@@ -88,7 +69,6 @@ unset token_lines
 [[ -f "$discord_token" && ! -L "$discord_token" ]] \
   || die "$discord_token must be a regular non-symbolic file"
 
-role_list="$(IFS=,; printf '%s' "${admin_role_ids[*]}")"
 config_temp="$(mktemp /etc/palworld/.discord.env.XXXXXXXX)"
 token_temp="$(mktemp /etc/palworld/credentials/.discord-token.XXXXXXXX)"
 config_backup="$(mktemp /etc/palworld/.discord.env.rollback.XXXXXXXX)"
@@ -132,8 +112,6 @@ trap finish_configuration EXIT
 cat > "$config_temp" <<EOF
 # Managed by palworldctl discord configure. No secrets are stored here.
 PALWORLD_DISCORD_GUILD_ID=$guild_id
-PALWORLD_DISCORD_CHANNEL_ID=$channel_id
-PALWORLD_DISCORD_ADMIN_ROLE_IDS=$role_list
 PALWORLD_DISCORD_METRICS_FILE=/var/lib/palworld-observer/palworld.prom
 PALWORLD_DISCORD_METRICS_MAX_AGE_SECONDS=30
 PALWORLD_DISCORD_PLAYER_SNAPSHOT_FILE=/var/lib/palworld-observer/players.snapshot
@@ -172,4 +150,4 @@ rm -f -- "$config_backup" "$token_backup"
 config_backup=''
 token_backup=''
 trap - EXIT
-log "Discord bot configured for guild $guild_id and channel $channel_id."
+log "Discord bot configured for guild $guild_id."

@@ -2,9 +2,9 @@
 
 Discord 봇은 등록한 Discord 서버에서 다음 slash command를 제공합니다.
 
-- `/pal status`: 관리 채널에서 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
+- `/pal status`: 서버의 모든 채널에서 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
 - `/pal restart confirm:True`: 서버의 모든 채널에서 업데이트 확인 후 안전한 서버 재기동
-- `/pal escape player:...`: 관리 채널에서 닉네임·Steam ID 목록으로 버그에 걸린 플레이어를 선택해 강제 재접속
+- `/pal escape player:...`: 서버의 모든 채널에서 닉네임·Steam ID 목록으로 버그에 걸린 플레이어를 선택해 강제 재접속
 - `/pal log-channel channel:#채널`: 서버 소유자 또는 Administrator가 관리 명령 기록 채널 지정
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
@@ -22,9 +22,9 @@ bot
 applications.commands
 ```
 
-관리 채널에서 메시지 전송과 embed 링크 권한만 부여하면 됩니다. 메시지 본문을
-읽지 않으므로 Message Content Intent는 필요하지 않습니다. Discord 개발자
-모드를 켜고 길드 ID와 관리 채널 ID를 복사합니다.
+봇이 명령에 응답할 각 채널에 채널 보기와 애플리케이션 명령 권한을 부여하면
+됩니다. 메시지 본문을 읽지 않으므로 Message Content Intent는 필요하지 않습니다.
+Discord 개발자 모드를 켜고 길드 ID를 복사합니다.
 
 토큰은 명령행에 넣지 말고 root만 읽을 수 있는 한 줄짜리 파일로 준비합니다.
 
@@ -34,13 +34,11 @@ sudoedit /root/discord-token
 
 sudo palworldctl discord configure \
   --token-file /root/discord-token \
-  --guild-id 123456789012345678 \
-  --channel-id 223456789012345678
+  --guild-id 123456789012345678
 ```
 
-등록된 관리 채널에서는 서버 상태·탈출 명령을 Discord 역할과 관계없이 실행할 수
-있고, `/pal restart`는 등록된 Discord 서버의 모든 채널에서 실행할 수 있습니다.
-설정이 끝나면 원본 토큰 파일은
+등록된 Discord 서버에서는 상태·재기동·탈출 명령을 Discord 역할과 관계없이 모든
+채널에서 실행할 수 있습니다. 설정이 끝나면 원본 토큰 파일은
 안전하게 삭제하고, bot token을 회전할 때 같은 명령으로 다시 구성합니다.
 
 ```bash
@@ -60,9 +58,9 @@ sudo palworldctl discord logs
 /pal escape player:광주전남의왕심재윤의부경대시위대작전 · steam_76561198863908214
 ```
 
-등록된 관리 채널에서는 관리 역할 없이 실행할 수 있습니다. 봇은 직접 REST
-자격 증명에 접근하지 않으며, 별도 저권한 systemd 서비스가 한 번의 검증된
-요청만 처리해 해당 플레이어의 재접속을 요청합니다.
+등록된 Discord 서버에서는 관리 역할 없이 실행할 수 있습니다. 봇은 직접 REST
+자격 증명에 접근하지 않으며, 별도 저권한 systemd 서비스가 한 번의 검증된 요청만
+처리해 해당 플레이어의 재접속을 요청합니다.
 
 ## 명령 로그 채널
 
