@@ -24,6 +24,20 @@ journalctl -u palworld-backup.service
 
 복원 시에는 서버를 정지하고 현재 Saved를 별도 위치에 보존한 뒤, 검증된 archive를 임시 경로에 풀어 구조와 checksum을 확인하고 교체해야 합니다. 자동 복원은 의도하지 않은 데이터 손실 위험 때문에 제공하지 않습니다.
 
+## 월드 저장 슬롯
+
+Discord `/pal save-slots`와 `/pal save-slot`은 최대 10개의 독립 월드를 선택합니다.
+처음 슬롯 기능을 사용하면 당시 활성 월드를 1번 슬롯으로 등록합니다. 활성 슬롯의
+`SaveGames`만 `/var/lib/palworld/Saved`에 두고, 나머지 슬롯은
+`/var/lib/palworld/save-slots`에 보관합니다. `Config`는 공통으로 남으므로 포트, 서버
+이름, REST와 같은 서버 설정은 슬롯 전환으로 바뀌지 않습니다.
+
+슬롯 전환은 현재 월드를 정상 종료하고 cold backup을 성공시킨 뒤에만 시작합니다.
+선택 슬롯의 `SaveGames`를 원자적으로 교체하고 서버·REST health를 확인합니다. 새
+슬롯 기동에 실패하면 이전 `SaveGames`와 활성 슬롯 상태를 복구한 뒤 기존 서버를 다시
+시작합니다. 일반 백업은 활성 월드만 압축하므로, 장기 보관할 비활성 슬롯은 별도 파일
+시스템 백업 정책에도 포함하세요.
+
 ## 업데이트
 
 ```bash

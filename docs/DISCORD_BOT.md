@@ -5,6 +5,8 @@ Discord 봇은 등록한 Discord 서버에서 다음 slash command를 제공합�
 - `/pal status`: 서버의 모든 채널에서 접속자, Palworld cgroup CPU/RAM, 서버 FPS, frame time, uptime
 - `/pal restart confirm:True`: 서버의 모든 채널에서 업데이트 확인 후 안전한 서버 재기동
 - `/pal escape player:...`: 서버의 모든 채널에서 닉네임·Steam ID 목록으로 버그에 걸린 플레이어를 선택해 강제 재접속
+- `/pal save-slots`: 1~10번 월드 저장 슬롯의 상태 확인
+- `/pal save-slot slot:1번 슬롯 confirm:True`: 선택한 월드 저장 슬롯으로 안전하게 전환하고 서버 실행
 - `/pal log-channel channel:#채널`: 서버 소유자 또는 Administrator가 관리 명령 기록 채널 지정
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
@@ -37,8 +39,8 @@ sudo palworldctl discord configure \
   --guild-id 123456789012345678
 ```
 
-등록된 Discord 서버에서는 상태·재기동·탈출 명령을 Discord 역할과 관계없이 모든
-채널에서 실행할 수 있습니다. 설정이 끝나면 원본 토큰 파일은
+등록된 Discord 서버에서는 상태·재기동·탈출·저장 슬롯 명령을 Discord 역할과 관계없이
+모든 채널에서 실행할 수 있습니다. 설정이 끝나면 원본 토큰 파일은
 안전하게 삭제하고, bot token을 회전할 때 같은 명령으로 다시 구성합니다.
 
 ```bash
@@ -61,6 +63,24 @@ sudo palworldctl discord logs
 등록된 Discord 서버에서는 관리 역할 없이 실행할 수 있습니다. 봇은 직접 REST
 자격 증명에 접근하지 않으며, 별도 저권한 systemd 서비스가 한 번의 검증된 요청만
 처리해 해당 플레이어의 재접속을 요청합니다.
+
+## 월드 저장 슬롯
+
+`/pal save-slots`로 1~10번 슬롯을 확인하고, 다음처럼 `confirm=True`로 전환합니다.
+
+```text
+/pal save-slot slot:3번 슬롯 confirm:True
+```
+
+처음 활성화할 때 현재 월드는 **1번 슬롯**으로 등록됩니다. 활성 월드는 항상
+`/var/lib/palworld/Saved/SaveGames`에서 실행되고, 비활성 슬롯만 별도 보관소에
+저장됩니다. 이 방식이라 모든 슬롯은 같은 서버 설정을 공유하지만 월드·플레이어·길드
+저장 데이터는 서로 분리됩니다. 비어 있는 슬롯을 선택하면 새 월드로 기동합니다.
+
+전환 서비스는 한 번에 하나만 실행되며, 현재 월드를 REST로 저장·정상 종료하고 cold
+backup을 만든 뒤 `SaveGames`만 원자적으로 교체합니다. 선택한 월드의 기동 및 REST
+health 검증에 실패하면 이전 슬롯을 되돌려 재기동합니다. 전환 중에는 다른 슬롯 명령을
+실행하지 마세요.
 
 ## 명령 로그 채널
 

@@ -1,0 +1,9 @@
+[Unit]
+Description=Accept Palworld save-slot requests from the Discord bot
+
+[Path]
+PathExists=/run/palworld-discord/save-slot.request
+Unit=palworld-save-slot.service
+
+[Install]
+WantedBy=multi-user.target

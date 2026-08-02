@@ -1,0 +1,29 @@
+[Unit]
+Description=Safely select a Palworld world-save slot requested from Discord
+Documentation=https://github.com/Love0118/Palworld-Oracle
+Wants=network-online.target
+After=network-online.target palworld.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/palworld/palworld.env
+ExecStart=/usr/local/lib/palworld-oracle/scripts/save-slot.sh
+TimeoutStartSec=15min
+UMask=0077
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID
+ReadWritePaths=/var/lib/palworld /var/lib/palworld-admin /var/lib/palworld-discord -/run/palworld-discord

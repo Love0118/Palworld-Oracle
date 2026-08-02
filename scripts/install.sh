@@ -303,6 +303,7 @@ fi
 systemctl enable --now \
   palworld-firewall.service \
   palworld-escape.path \
+  palworld-save-slot.path \
   palworld-healthcheck.timer \
   palworld-maintenance-restart.path \
   palworld-maintenance-restart.timer

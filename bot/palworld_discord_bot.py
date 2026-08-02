@@ -36,11 +36,15 @@ SYSTEMCTL = "/usr/bin/systemctl"
 READY_PATH = Path("/run/palworld-discord/ready")
 RESTART_REQUEST_PATH = Path("/run/palworld-discord/restart.request")
 ESCAPE_REQUEST_PATH = Path("/run/palworld-discord/escape.request")
+SAVE_SLOT_REQUEST_PATH = Path("/run/palworld-discord/save-slot.request")
+SAVE_SLOT_STATUS_PATH = Path("/var/lib/palworld-discord/save-slots.status")
 LOG_CHANNEL_PATH = Path("/var/lib/palworld-discord/log-channel-id")
 PLAYER_ID_PATTERN = re.compile(r"[!-~]{1,128}")
 ESCAPE_PLAYER_ID_PATTERN = re.compile(r"steam_[0-9]{17}")
 PLAYER_SNAPSHOT_MAX_BYTES = 16 * 1024
 PLAYER_DIRECTORY_MAX_BYTES = 16 * 1024
+SAVE_SLOT_COUNT = 10
+SAVE_SLOT_STATUS_MAX_BYTES = 1024
 
 
 def required_snowflake(name: str) -> int:
@@ -266,6 +270,64 @@ def read_player_directory(
         player_ids.add(player_id)
         players.append(PlayerDirectoryEntry(user_id=player_id, name=name))
     return server_uptime, tuple(players), metadata.st_mtime
+
+
+@dataclass(frozen=True)
+class SaveSlotStatus:
+    active_slot: int
+    states: tuple[str, ...]
+
+
+def read_save_slot_status(path: Path) -> SaveSlotStatus:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("save-slot status is not a regular file")
+        if metadata.st_size > SAVE_SLOT_STATUS_MAX_BYTES:
+            raise ValueError("save-slot status exceeds the size limit")
+        chunks: list[bytes] = []
+        size = 0
+        while True:
+            chunk = os.read(descriptor, 512)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > SAVE_SLOT_STATUS_MAX_BYTES:
+                raise ValueError("save-slot status exceeds the size limit")
+            chunks.append(chunk)
+    finally:
+        os.close(descriptor)
+
+    lines = b"".join(chunks).decode("ascii").splitlines()
+    if len(lines) != SAVE_SLOT_COUNT + 2:
+        raise ValueError("save-slot status has an invalid line count")
+    if lines[0] != "PALWORLD_SAVE_SLOT_STATUS_V1":
+        raise ValueError("save-slot status header is invalid")
+    active_text = lines[1].removeprefix("active_slot=")
+    if lines[1] != f"active_slot={active_text}" or not active_text.isdecimal():
+        raise ValueError("save-slot active slot is invalid")
+    active_slot = int(active_text)
+    if not 1 <= active_slot <= SAVE_SLOT_COUNT:
+        raise ValueError("save-slot active slot is outside the allowed range")
+
+    states: list[str] = []
+    for slot, line in enumerate(lines[2:], start=1):
+        expected_prefix = f"slot_{slot}="
+        state = line.removeprefix(expected_prefix)
+        if line != f"{expected_prefix}{state}" or state not in {
+            "active",
+            "stored",
+            "empty",
+        }:
+            raise ValueError("save-slot state is invalid")
+        if (slot == active_slot) != (state == "active"):
+            raise ValueError("save-slot active state is inconsistent")
+        states.append(state)
+    return SaveSlotStatus(active_slot=active_slot, states=tuple(states))
 
 
 GUILD_ID = required_snowflake("PALWORLD_DISCORD_GUILD_ID")
@@ -638,6 +700,7 @@ client = PalworldClient()
 pal = app_commands.Group(name="pal", description="Palworld 서버 관리")
 restart_in_progress = False
 escape_in_progress = False
+save_slot_in_progress = False
 
 
 def journal_command_invocation(
@@ -787,6 +850,98 @@ def write_escape_request(player_id: str) -> None:
             # Do not remove ESCAPE_REQUEST_PATH: another request may already
             # be waiting and os.link() reports that race with FileExistsError.
             pass
+
+
+def write_save_slot_request(action: str, slot: int | None = None) -> None:
+    """Atomically publish one bounded save-slot request for systemd."""
+    if action == "status":
+        if slot is not None:
+            raise ValueError("save-slot status request must not include a slot")
+        payload = b"PALWORLD_SAVE_SLOT_REQUEST_V1\naction=status\n"
+    elif action == "select":
+        if slot is None or not 1 <= slot <= SAVE_SLOT_COUNT:
+            raise ValueError("save-slot selection is invalid")
+        payload = (
+            f"PALWORLD_SAVE_SLOT_REQUEST_V1\naction=select\nslot={slot}\n".encode(
+                "ascii"
+            )
+        )
+    else:
+        raise ValueError("save-slot request action is invalid")
+
+    temporary = SAVE_SLOT_REQUEST_PATH.with_name(
+        f".save-slot.{os.getpid()}.{secrets.token_hex(8)}"
+    )
+    published = False
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC,
+            0o600,
+        )
+        try:
+            written = 0
+            while written < len(payload):
+                count = os.write(descriptor, payload[written:])
+                if count == 0:
+                    raise OSError("could not write save-slot request")
+                written += count
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+        # link(2) provides atomic no-replace publication, so a second command
+        # cannot silently replace the slot selected by the first requester.
+        os.link(temporary, SAVE_SLOT_REQUEST_PATH, follow_symlinks=False)
+        published = True
+        directory = os.open(
+            SAVE_SLOT_REQUEST_PATH.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+        )
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+        if not published:
+            # Another request may have won the publication race. Never remove
+            # the fixed request path after link(2) reports FileExistsError.
+            pass
+
+
+async def request_save_slot(action: str, slot: int | None = None) -> str:
+    """Publish a request and wait for its systemd job outcome."""
+    before = await systemctl_properties(
+        "palworld-save-slot.service", "ExecMainStartTimestampMonotonic"
+    )
+    before_start = int(before.get("ExecMainStartTimestampMonotonic", "0") or 0)
+    write_save_slot_request(action, slot)
+
+    deadline = asyncio.get_running_loop().time() + COMMAND_TIMEOUT
+    seen_start = False
+    while asyncio.get_running_loop().time() < deadline:
+        state = await systemctl_properties(
+            "palworld-save-slot.service",
+            "ActiveState",
+            "Result",
+            "ExecMainStartTimestampMonotonic",
+        )
+        start_timestamp = int(
+            state.get("ExecMainStartTimestampMonotonic", "0") or 0
+        )
+        if start_timestamp > before_start:
+            seen_start = True
+        active_state = state.get("ActiveState", "unknown")
+        if seen_start and active_state == "failed":
+            return "failed"
+        if seen_start and active_state == "inactive":
+            return "success" if state.get("Result") == "success" else "failed"
+        await asyncio.sleep(2)
+
+    if not seen_start:
+        SAVE_SLOT_REQUEST_PATH.unlink(missing_ok=True)
+    return "pending"
 
 
 def escape_choice_label(player: PlayerDirectoryEntry) -> str:
@@ -1009,6 +1164,196 @@ async def restart_command(
         )
     finally:
         restart_in_progress = False
+
+
+def format_save_slot_status(status: SaveSlotStatus) -> str:
+    labels = {"active": "실행 중", "stored": "저장됨", "empty": "비어 있음"}
+    return "\n".join(
+        f"{slot}번: {labels[state]}"
+        for slot, state in enumerate(status.states, start=1)
+    )
+
+
+@pal.command(
+    name="save-slots",
+    description="1~10번 월드 저장 슬롯의 사용 상태를 확인합니다.",
+)
+async def save_slots_command(interaction: discord.Interaction) -> None:
+    global save_slot_in_progress
+    command_name = "/pal save-slots"
+    journal_command_invocation(interaction, command_name)
+    if not await interaction_in_configured_guild(interaction, command_name):
+        return
+    if save_slot_in_progress:
+        await interaction.response.send_message(
+            "이미 저장 슬롯 작업을 처리 중입니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction, command_name, "거부됨", "다른 저장 슬롯 작업이 진행 중입니다."
+        )
+        return
+
+    save_slot_in_progress = True
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        outcome = await request_save_slot("status")
+        if outcome == "success":
+            status = read_save_slot_status(SAVE_SLOT_STATUS_PATH)
+            embed = discord.Embed(
+                title="Palworld 월드 저장 슬롯",
+                description=format_save_slot_status(status),
+                colour=discord.Colour.blue(),
+                timestamp=discord.utils.utcnow(),
+            )
+            embed.set_footer(text=f"현재 실행 슬롯: {status.active_slot}번")
+            await interaction.edit_original_response(embed=embed)
+            await audit_command(
+                interaction,
+                command_name,
+                "성공",
+                f"저장 슬롯 상태를 조회했습니다. 활성 슬롯: {status.active_slot}번.",
+            )
+        elif outcome == "pending":
+            await interaction.edit_original_response(
+                content="저장 슬롯 상태 조회가 계속 진행 중입니다. 잠시 후 다시 시도해 주세요."
+            )
+            await audit_command(
+                interaction, command_name, "진행 중", "저장 슬롯 상태 조회가 지연되고 있습니다."
+            )
+        else:
+            await interaction.edit_original_response(
+                content="저장 슬롯 상태를 조회하지 못했습니다. 서버 로그를 확인해 주세요."
+            )
+            await audit_command(
+                interaction, command_name, "실패", "저장 슬롯 상태 조회 서비스가 실패했습니다."
+            )
+    except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
+        LOGGER.error("could not request save-slot status: %s", error)
+        try:
+            SAVE_SLOT_REQUEST_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if interaction.response.is_done():
+            await interaction.edit_original_response(
+                content="저장 슬롯 상태 조회를 호출하지 못했습니다."
+            )
+        await audit_command(
+            interaction, command_name, "실패", "저장 슬롯 상태 조회 요청을 처리하지 못했습니다."
+        )
+    finally:
+        save_slot_in_progress = False
+
+
+@pal.command(
+    name="save-slot",
+    description="선택한 월드 저장 슬롯으로 서버를 안전하게 전환하고 실행합니다.",
+)
+@app_commands.describe(
+    slot="실행할 저장 슬롯", confirm="현재 서버를 종료하고 저장 슬롯을 바꾸려면 True를 선택하세요."
+)
+@app_commands.choices(
+    slot=[
+        app_commands.Choice(name=f"{slot}번 슬롯", value=slot)
+        for slot in range(1, SAVE_SLOT_COUNT + 1)
+    ]
+)
+async def save_slot_command(
+    interaction: discord.Interaction, slot: app_commands.Choice[int], confirm: bool
+) -> None:
+    global save_slot_in_progress
+    command_name = "/pal save-slot"
+    selected_slot = slot.value
+    journal_command_invocation(interaction, command_name)
+    if not await interaction_in_configured_guild(interaction, command_name):
+        return
+    if not confirm:
+        await interaction.response.send_message(
+            "저장 슬롯 전환을 취소했습니다. 실행하려면 `confirm`을 True로 선택하세요.",
+            ephemeral=True,
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "취소됨",
+            f"{selected_slot}번 슬롯 전환의 확인 값이 False였습니다.",
+        )
+        return
+    if save_slot_in_progress:
+        await interaction.response.send_message(
+            "이미 저장 슬롯 작업을 처리 중입니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "다른 저장 슬롯 작업이 진행 중입니다.",
+        )
+        return
+
+    save_slot_in_progress = True
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        outcome = await request_save_slot("select", selected_slot)
+        if outcome == "success":
+            status = read_save_slot_status(SAVE_SLOT_STATUS_PATH)
+            if status.active_slot != selected_slot:
+                raise RuntimeError("save-slot service completed with an unexpected active slot")
+            await interaction.edit_original_response(
+                content=(
+                    f"{selected_slot}번 저장 슬롯으로 전환해 서버를 실행했습니다. "
+                    "전환 전 월드는 cold backup과 이전 슬롯에 보관했습니다."
+                )
+            )
+            await audit_command(
+                interaction,
+                command_name,
+                "완료",
+                f"{selected_slot}번 저장 슬롯으로 전환하고 서버 health를 확인했습니다.",
+            )
+        elif outcome == "pending":
+            await interaction.edit_original_response(
+                content=(
+                    f"{selected_slot}번 저장 슬롯 전환이 계속 진행 중입니다. "
+                    "완료될 때까지 다른 슬롯 명령을 실행하지 마세요."
+                )
+            )
+            await audit_command(
+                interaction,
+                command_name,
+                "진행 중",
+                f"{selected_slot}번 저장 슬롯 전환이 명령 응답 시간보다 오래 걸립니다.",
+            )
+        else:
+            await interaction.edit_original_response(
+                content=(
+                    f"{selected_slot}번 저장 슬롯 전환에 실패했습니다. "
+                    "기존 슬롯 복구를 시도했으니 서버 로그를 확인해 주세요."
+                )
+            )
+            await audit_command(
+                interaction,
+                command_name,
+                "실패",
+                f"{selected_slot}번 저장 슬롯 전환 서비스가 실패했습니다.",
+            )
+    except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
+        LOGGER.error("could not request save-slot selection: %s", error)
+        try:
+            SAVE_SLOT_REQUEST_PATH.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if interaction.response.is_done():
+            await interaction.edit_original_response(
+                content="저장 슬롯 전환 서비스를 호출하지 못했습니다."
+            )
+        await audit_command(
+            interaction,
+            command_name,
+            "실패",
+            f"{selected_slot}번 저장 슬롯 전환 요청을 처리하지 못했습니다.",
+        )
+    finally:
+        save_slot_in_progress = False
 
 
 @pal.command(

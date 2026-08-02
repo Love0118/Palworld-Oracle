@@ -76,6 +76,9 @@ load_config() {
   : "${PALWORLD_BACKUP_DIR:=/var/lib/palworld/backups}"
   : "${PALWORLD_HEALTH_STATE_DIR:=/var/lib/palworld/health}"
   : "${PALWORLD_ADMIN_STATE_DIR:=/var/lib/palworld-admin}"
+  : "${PALWORLD_SAVE_SLOT_ROOT:=$(dirname -- "$PALWORLD_SAVED_DIR")/save-slots}"
+  : "${PALWORLD_SAVE_SLOT_STATE_DIR:=$PALWORLD_ADMIN_STATE_DIR/save-slots}"
+  : "${PALWORLD_SAVE_SLOT_STATUS_FILE:=/var/lib/palworld-discord/save-slots.status}"
   : "${PALWORLD_MAINTENANCE_LOCK:=/var/lib/palworld-admin/maintenance.lock}"
   : "${PALWORLD_UPDATE_LOCK:=/var/lib/palworld-admin/update.lock}"
   : "${PALWORLD_APP_ID:=2394010}"
@@ -162,6 +165,9 @@ validate_config_paths() {
   validate_descendant_path PALWORLD_BACKUP_DIR "$PALWORLD_BACKUP_DIR" /var/lib /var/backups /srv /mnt
   validate_descendant_path PALWORLD_HEALTH_STATE_DIR "$PALWORLD_HEALTH_STATE_DIR" /var/lib
   validate_descendant_path PALWORLD_ADMIN_STATE_DIR "$PALWORLD_ADMIN_STATE_DIR" /var/lib
+  validate_descendant_path PALWORLD_SAVE_SLOT_ROOT "$PALWORLD_SAVE_SLOT_ROOT" /var/lib /srv /mnt
+  validate_descendant_path PALWORLD_SAVE_SLOT_STATE_DIR "$PALWORLD_SAVE_SLOT_STATE_DIR" /var/lib
+  validate_descendant_path PALWORLD_SAVE_SLOT_STATUS_FILE "$PALWORLD_SAVE_SLOT_STATUS_FILE" /var/lib/palworld-discord
   validate_descendant_path PALWORLD_MAINTENANCE_LOCK "$PALWORLD_MAINTENANCE_LOCK" /var/lib
   validate_descendant_path PALWORLD_UPDATE_LOCK "$PALWORLD_UPDATE_LOCK" /var/lib
   validate_descendant_path PALWORLD_ADMIN_PASSWORD_FILE "$PALWORLD_ADMIN_PASSWORD_FILE" /etc/palworld
@@ -186,6 +192,9 @@ validate_config_paths() {
     && "$(normalized_path "$PALWORLD_BACKUP_DIR")" == /var/lib/palworld/backups \
     && "$(normalized_path "$PALWORLD_HEALTH_STATE_DIR")" == /var/lib/palworld/health \
     && "$(normalized_path "$PALWORLD_ADMIN_STATE_DIR")" == /var/lib/palworld-admin \
+    && "$(normalized_path "$PALWORLD_SAVE_SLOT_ROOT")" == /var/lib/palworld/save-slots \
+    && "$(normalized_path "$PALWORLD_SAVE_SLOT_STATE_DIR")" == /var/lib/palworld-admin/save-slots \
+    && "$(normalized_path "$PALWORLD_SAVE_SLOT_STATUS_FILE")" == /var/lib/palworld-discord/save-slots.status \
     && "$(normalized_path "$PALWORLD_MAINTENANCE_LOCK")" == /var/lib/palworld-admin/maintenance.lock \
     && "$(normalized_path "$PALWORLD_UPDATE_LOCK")" == /var/lib/palworld-admin/update.lock \
     && "$(normalized_path "$PALWORLD_UPDATER_STATE_DIR")" == /var/lib/palworld-updater \
