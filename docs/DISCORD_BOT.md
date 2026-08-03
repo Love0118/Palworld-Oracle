@@ -7,7 +7,7 @@ Discord 봇은 등록한 Discord 서버에서 다음 slash command를 제공합�
 - `/pal escape player:...`: 서버의 모든 채널에서 닉네임·Steam ID 목록으로 버그에 걸린 플레이어를 선택해 강제 재접속
 - `/pal save-slots`: 1~10번 월드 저장 슬롯의 상태 확인
 - `/pal save-slot slot:1번 슬롯 confirm:True`: 선택한 월드 저장 슬롯으로 안전하게 전환하고 서버 실행
-- `/pal log-channel channel:#채널`: 서버 소유자 또는 Administrator가 관리 명령 기록 채널 지정
+- `/pal log-channel channel:#채널`: 관리 명령 기록 채널 지정
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
 `serverfps`를 **TPS 대체 지표**로 명시해 표시합니다. 봇은 네이티브 observer가
@@ -24,9 +24,10 @@ bot
 applications.commands
 ```
 
-봇이 명령에 응답할 각 채널에 채널 보기와 애플리케이션 명령 권한을 부여하면
-됩니다. 메시지 본문을 읽지 않으므로 Message Content Intent는 필요하지 않습니다.
-Discord 개발자 모드를 켜고 길드 ID를 복사합니다.
+봇이 명령에 응답할 각 채널에 채널 보기와 애플리케이션 명령 권한, 그리고 최초 역할
+생성을 위한 **역할 관리(Manage Roles)** 권한을 부여하면 됩니다. 메시지 본문을 읽지
+않으므로 Message Content Intent는 필요하지 않습니다. Discord 개발자 모드를 켜고 길드
+ID를 복사합니다.
 
 토큰은 명령행에 넣지 말고 root만 읽을 수 있는 한 줄짜리 파일로 준비합니다.
 
@@ -39,8 +40,13 @@ sudo palworldctl discord configure \
   --guild-id 123456789012345678
 ```
 
-등록된 Discord 서버에서는 상태·재기동·탈출·저장 슬롯 명령을 Discord 역할과 관계없이
-모든 채널에서 실행할 수 있습니다. 설정이 끝나면 원본 토큰 파일은
+봇이 처음 접속하면 권한이 없는 `Palworld 명령어` 역할을 자동으로 하나 만듭니다. 서버
+관리자가 이 역할을 사용할 사람에게 Discord에서 **수동으로 지급**하세요. 해당 역할을
+가진 사용자는 등록된 Discord 서버의 모든 채널에서 모든 `/pal` 명령을 실행할 수
+있습니다. 서버 소유자와 Discord Administrator는 역할이 없어도 비상 복구를 위해
+명령을 실행할 수 있습니다. 역할을 삭제하면 봇이 다시 만듭니다.
+
+설정이 끝나면 원본 토큰 파일은
 안전하게 삭제하고, bot token을 회전할 때 같은 명령으로 다시 구성합니다.
 
 ```bash
@@ -60,9 +66,9 @@ sudo palworldctl discord logs
 /pal escape player:광주전남의왕심재윤의부경대시위대작전 · steam_76561198863908214
 ```
 
-등록된 Discord 서버에서는 관리 역할 없이 실행할 수 있습니다. 봇은 직접 REST
-자격 증명에 접근하지 않으며, 별도 저권한 systemd 서비스가 한 번의 검증된 요청만
-처리해 해당 플레이어의 재접속을 요청합니다.
+`Palworld 명령어` 역할(또는 서버 소유자/Administrator)이 있어야 실행할 수 있습니다.
+봇은 직접 REST 자격 증명에 접근하지 않으며, 별도 저권한 systemd 서비스가 한 번의
+검증된 요청만 처리해 해당 플레이어의 재접속을 요청합니다.
 
 ## 월드 저장 슬롯
 
@@ -84,9 +90,8 @@ health 검증에 실패하면 이전 슬롯을 되돌려 재기동합니다. 전
 
 ## 명령 로그 채널
 
-Discord 서버 소유자 또는 Administrator가 등록된 Discord 서버의 어느 채널에서든
-다음 명령을 실행하면 설정이 재기동 후에도 유지됩니다. 재기동 전용 관리 역할만
-가진 사용자는 로그 목적지를 변경할 수 없습니다.
+`Palworld 명령어` 역할(또는 서버 소유자/Administrator)을 가진 사용자가 등록된
+Discord 서버의 어느 채널에서든 다음 명령을 실행하면 설정이 재기동 후에도 유지됩니다.
 
 ```text
 /pal log-channel channel:#서버-로그
@@ -107,8 +112,8 @@ observer 단계에서 버립니다. 관측 주기가 10초이므로 접속·퇴�
 
 ## 재기동과 업데이트
 
-`/pal restart`는 등록된 Discord 서버의 모든 채널에서 누구나 `confirm=True`로
-실행할 수 있습니다. 봇은 전용
+`/pal restart`는 `Palworld 명령어` 역할(또는 서버 소유자/Administrator)을 가진
+사용자가 등록된 Discord 서버의 모든 채널에서 `confirm=True`로 실행할 수 있습니다. 봇은 전용
 `/run/palworld-discord` 디렉터리에 고정된 요청 파일만 만들 수 있고,
 systemd path unit이 그 파일만 감지해 `palworld-maintenance-restart.service`를
 실행합니다. 봇 계정은 임의 systemd 명령, 게임 계정, 유지보수 그룹, REST

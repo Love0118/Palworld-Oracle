@@ -39,6 +39,8 @@ ESCAPE_REQUEST_PATH = Path("/run/palworld-discord/escape.request")
 SAVE_SLOT_REQUEST_PATH = Path("/run/palworld-discord/save-slot.request")
 SAVE_SLOT_STATUS_PATH = Path("/var/lib/palworld-discord/save-slots.status")
 LOG_CHANNEL_PATH = Path("/var/lib/palworld-discord/log-channel-id")
+OPERATOR_ROLE_PATH = Path("/var/lib/palworld-discord/operator-role-id")
+OPERATOR_ROLE_NAME = "Palworld 명령어"
 PLAYER_ID_PATTERN = re.compile(r"[!-~]{1,128}")
 ESCAPE_PLAYER_ID_PATTERN = re.compile(r"steam_[0-9]{17}")
 PLAYER_SNAPSHOT_MAX_BYTES = 16 * 1024
@@ -152,6 +154,71 @@ def write_log_channel_id(channel_id: int) -> None:
 
     directory = os.open(
         LOG_CHANNEL_PATH.parent,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+    )
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def read_operator_role_id() -> int | None:
+    try:
+        descriptor = os.open(
+            OPERATOR_ROLE_PATH,
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+        )
+    except FileNotFoundError:
+        return None
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 32:
+            raise ValueError("stored operator role setting is not a small regular file")
+        serialized = os.read(descriptor, 32)
+        if os.read(descriptor, 1):
+            raise ValueError("stored operator role ID is too long")
+    finally:
+        os.close(descriptor)
+
+    value_text = serialized.decode("ascii").strip()
+    if not re.fullmatch(r"[1-9][0-9]{5,18}", value_text):
+        raise ValueError("stored operator role ID is invalid")
+    value = int(value_text)
+    if value >= 2**64:
+        raise ValueError("stored operator role ID is outside the snowflake range")
+    return value
+
+
+def write_operator_role_id(role_id: int) -> None:
+    if not 0 < role_id < 2**64:
+        raise ValueError("operator role ID is outside the Discord snowflake range")
+    temporary = OPERATOR_ROLE_PATH.with_name(
+        f".operator-role-id.{os.getpid()}.{secrets.token_hex(8)}"
+    )
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o600,
+        )
+        try:
+            payload = f"{role_id}\n".encode("ascii")
+            written = 0
+            while written < len(payload):
+                count = os.write(descriptor, payload[written:])
+                if count == 0:
+                    raise OSError("could not write operator role setting")
+                written += count
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, OPERATOR_ROLE_PATH)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+    directory = os.open(
+        OPERATOR_ROLE_PATH.parent,
         os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
     )
     try:
@@ -405,6 +472,18 @@ async def interaction_in_configured_guild(
             "등록된 Discord 서버 밖에서 실행했습니다.",
         )
         return False
+    if not has_command_access(interaction):
+        await interaction.response.send_message(
+            f"`{OPERATOR_ROLE_NAME}` 역할이 있어야 이 명령어를 사용할 수 있습니다.",
+            ephemeral=True,
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "봇 명령 역할이 없는 사용자가 명령을 실행했습니다.",
+        )
+        return False
     return True
 
 
@@ -413,6 +492,16 @@ def is_audit_admin(interaction: discord.Interaction) -> bool:
     if not isinstance(member, discord.Member):
         return False
     return member.id == member.guild.owner_id or member.guild_permissions.administrator
+
+
+def has_command_access(interaction: discord.Interaction) -> bool:
+    if is_audit_admin(interaction):
+        return True
+    member = interaction.user
+    role_id = client.operator_role_id
+    if not isinstance(member, discord.Member) or role_id is None:
+        return False
+    return any(role.id == role_id for role in member.roles)
 
 
 def metric(metrics: dict[str, float], name: str) -> float | None:
@@ -513,6 +602,7 @@ class PalworldClient(discord.Client):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.log_channel_id: int | None = None
+        self.operator_role_id: int | None = None
         self.player_watch_task: asyncio.Task[None] | None = None
         self.known_player_ids: frozenset[str] | None = None
         self.known_server_uptime: float | None = None
@@ -526,10 +616,41 @@ class PalworldClient(discord.Client):
                 "stored Discord log channel setting is invalid; audit will use journal only"
             )
             self.log_channel_id = None
+        try:
+            self.operator_role_id = read_operator_role_id()
+        except (OSError, UnicodeError, ValueError):
+            LOGGER.warning(
+                "stored Discord operator role setting is invalid; a replacement role will be created"
+            )
+            self.operator_role_id = None
         guild = discord.Object(id=GUILD_ID)
         self.tree.copy_global_to(guild=guild)
         synced = await self.tree.sync(guild=guild)
         LOGGER.info("synced %d command(s) to configured guild", len(synced))
+
+    async def ensure_operator_role(self, guild: discord.Guild) -> discord.Role:
+        """Return the one persisted role allowed to operate this bot."""
+        role = (
+            guild.get_role(self.operator_role_id)
+            if self.operator_role_id is not None
+            else None
+        )
+        if role is None:
+            member = guild.me
+            if member is None or not member.guild_permissions.manage_roles:
+                raise RuntimeError("bot needs Manage Roles to create its operator role")
+            role = await guild.create_role(
+                name=OPERATOR_ROLE_NAME,
+                reason="Create the Palworld bot operator role",
+            )
+            write_operator_role_id(role.id)
+            self.operator_role_id = role.id
+            LOGGER.info(
+                "created Discord operator role role_id=%s guild_id=%s",
+                role.id,
+                guild.id,
+            )
+        return role
 
     async def on_ready(self) -> None:
         guild = self.get_guild(GUILD_ID)
@@ -542,6 +663,14 @@ class PalworldClient(discord.Client):
             LOGGER.error("could not resolve the bot guild membership")
             await self.close()
             return
+        try:
+            operator_role = await self.ensure_operator_role(guild)
+            self.operator_role_id = operator_role.id
+        except (discord.Forbidden, discord.HTTPException, OSError, RuntimeError) as error:
+            LOGGER.error(
+                "could not ensure Discord operator role (%s); only guild owners and administrators can use commands",
+                type(error).__name__,
+            )
         if self.log_channel_id is not None:
             log_channel = guild.get_channel(self.log_channel_id)
             if not isinstance(log_channel, discord.TextChannel):
@@ -565,6 +694,19 @@ class PalworldClient(discord.Client):
             self.player_watch_task = asyncio.create_task(
                 self.watch_player_connections(),
                 name="palworld-player-connection-watch",
+            )
+
+    async def on_guild_role_delete(self, role: discord.Role) -> None:
+        if role.guild.id != GUILD_ID or role.id != self.operator_role_id:
+            return
+        self.operator_role_id = None
+        try:
+            replacement = await self.ensure_operator_role(role.guild)
+            self.operator_role_id = replacement.id
+        except (discord.Forbidden, discord.HTTPException, OSError, RuntimeError) as error:
+            LOGGER.error(
+                "could not recreate deleted Discord operator role (%s)",
+                type(error).__name__,
             )
 
     async def close(self) -> None:
@@ -958,6 +1100,7 @@ async def escape_player_autocomplete(
 ) -> list[app_commands.Choice[str]]:
     if (
         interaction.guild_id != GUILD_ID
+        or not has_command_access(interaction)
     ):
         return []
     try:
@@ -1517,17 +1660,6 @@ async def log_channel_command(
 ) -> None:
     journal_command_invocation(interaction, "/pal log-channel")
     if not await interaction_in_configured_guild(interaction, "/pal log-channel"):
-        return
-    if not is_audit_admin(interaction):
-        await interaction.response.send_message(
-            "로그 채널을 변경할 관리 권한이 없습니다.", ephemeral=True
-        )
-        await audit_command(
-            interaction,
-            "/pal log-channel",
-            "거부됨",
-            "관리 권한이 없는 사용자가 로그 채널 변경을 시도했습니다.",
-        )
         return
     if channel.guild.id != GUILD_ID:
         await interaction.response.send_message(
