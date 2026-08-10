@@ -9,7 +9,7 @@ ARM64 네이티브 DepotDownloader가 게임 파일을 받고, Box64 DynaRec이 
 - Debian/Ubuntu ARM64
 - Oracle A1(Ampere Altra/Neoverse-N1), Raspberry Pi 5, Apple Silicon Linux 및 generic ARM64 Box64 빌드 프로필
 - Palworld Dedicated Server app `2394010`
-- Box64 `v0.4.2`, DepotDownloader `3.4.0` 기본 고정
+- Box64 `v0.4.4`, DepotDownloader `3.4.0` 기본 고정
 - 실행 중인 릴리스와 다운로드 작업공간 분리
 - 정상 저장/종료 후 원자적 릴리스 전환
 - REST 상태 검사, 수동 cold backup, 한국시간 05:00 업데이트 확인·재기동

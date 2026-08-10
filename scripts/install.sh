@@ -21,7 +21,7 @@ Options:
   -h, --help         Show this help.
 
 Environment overrides:
-  BOX64_VERSION=v0.4.2
+  BOX64_VERSION=v0.4.4
   BOX64_SHA256=<required when overriding BOX64_VERSION>
   BOX64_BUILD_PROFILE=auto|generic|adlink|rpi5|m1
   DEPOT_DOWNLOADER_VERSION=DepotDownloader_3.4.0
@@ -267,7 +267,7 @@ PALWORLD_OBSERVER_SOURCE_DIR="$PROJECT_ROOT/native/observer" \
   "$libexec/scripts/install-observer.sh"
 
 if ! is_true "$skip_box64"; then
-  BOX64_VERSION="${BOX64_VERSION:-v0.4.2}" \
+  BOX64_VERSION="${BOX64_VERSION:-v0.4.4}" \
   BOX64_SHA256="${BOX64_SHA256:-}" \
   BOX64_BUILD_PROFILE="${BOX64_BUILD_PROFILE:-auto}" \
     "$libexec/scripts/install-box64.sh"

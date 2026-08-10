@@ -11,14 +11,14 @@ require_command curl
 require_command sha256sum
 require_command tar
 
-BOX64_VERSION="${BOX64_VERSION:-v0.4.2}"
+BOX64_VERSION="${BOX64_VERSION:-v0.4.4}"
 BOX64_SHA256="${BOX64_SHA256:-}"
 BOX64_BUILD_PROFILE="${BOX64_BUILD_PROFILE:-auto}"
 BOX64_JOBS="${BOX64_JOBS:-$(nproc)}"
 
 case "$BOX64_VERSION" in
-  v0.4.2)
-    BOX64_SHA256="${BOX64_SHA256:-c9d0db8a02fb9d586f3892caf83908cc92fbe3eb9a871cd868286cc932690d5e}"
+  v0.4.4)
+    BOX64_SHA256="${BOX64_SHA256:-99c6de4f509e46ab1de15df740d0e0ea338a7790efa3f67510dfbb975cc24029}"
     ;;
   *)
     [[ "$BOX64_SHA256" =~ ^[a-fA-F0-9]{64}$ ]] \
