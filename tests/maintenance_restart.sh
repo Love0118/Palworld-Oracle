@@ -70,6 +70,7 @@ set -Eeuo pipefail
 if [[ "${PALWORLD_TEST_RUNUSER_FAIL:-false}" == true ]]; then
   exit 42
 fi
+printf '222\n' > "${PALWORLD_TEST_DOWNLOADED_MANIFEST:?}"
 exit 0
 EOF
 
@@ -118,12 +119,14 @@ test_environment=(
   PALWORLD_CONFIG_FILE="$config_file"
   PALWORLD_TEST_SYSTEMCTL_LOG="$systemctl_log"
   PALWORLD_TEST_DATE_STATE="$date_state"
+  PALWORLD_TEST_DOWNLOADED_MANIFEST="$test_root/updater/downloaded-linux-manifest"
 )
 
 env "${test_environment[@]}" \
   "$PROJECT_ROOT/scripts/maintenance-update.sh"
 [[ ! -s "$systemctl_log" ]] \
   || { printf 'update-only mode unexpectedly restarted the server\n' >&2; exit 1; }
+grep -Fx 222 "$test_root/admin/active-linux-manifest" >/dev/null
 
 env "${test_environment[@]}" \
   "$PROJECT_ROOT/scripts/maintenance-update.sh" --restart-always

@@ -59,6 +59,7 @@ updater worktree ── fingerprint ── staging release
 - `palworld-discord.service`: 길드·채널·역할 제한 Discord slash command
 - `palworld-recover.service`: 연속 장애 시 cooldown 복구
 - `palworld-update.service`: 수동 업데이트의 격리 다운로드와 원자적 승격
+- `palworld-update-watch.service/.timer`: 5분마다 Steam Linux 매니페스트만 확인하고, 변경을 2회 확인한 뒤 사전 공지·안전 업데이트 실행
 - `palworld-maintenance-restart.service/.timer`: 매일 05:00 KST 업데이트 확인 후 재기동
 
 Box64 DynaRec은 실행 중 코드를 생성하므로 `MemoryDenyWriteExecute`를 의도적으로 적용하지 않습니다. CPU quota와 낮은 memory hard cap도 기본값에서 제외합니다.

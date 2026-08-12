@@ -104,6 +104,28 @@ restart_current_release() {
   trap - EXIT
 }
 
+record_active_manifest() {
+  local downloaded_manifest_file="$PALWORLD_UPDATER_STATE_DIR/downloaded-linux-manifest"
+  local downloaded_manifest marker_tmp current_manifest=''
+  [[ -r "$downloaded_manifest_file" ]] \
+    || die "The downloaded Linux manifest marker is missing."
+  IFS= read -r downloaded_manifest < "$downloaded_manifest_file" || true
+  [[ "$downloaded_manifest" =~ ^[0-9]+$ ]] \
+    || die "The downloaded Linux manifest marker is invalid."
+  if [[ -r "$PALWORLD_ACTIVE_MANIFEST_FILE" ]]; then
+    IFS= read -r current_manifest < "$PALWORLD_ACTIVE_MANIFEST_FILE" || true
+  fi
+  if [[ "$current_manifest" == "$downloaded_manifest" ]]; then
+    return 0
+  fi
+  marker_tmp="$(mktemp --tmpdir="$PALWORLD_ADMIN_STATE_DIR" .active-manifest.XXXXXXXX)"
+  printf '%s\n' "$downloaded_manifest" > "$marker_tmp"
+  chown root:root "$marker_tmp"
+  chmod 0600 "$marker_tmp"
+  mv -f "$marker_tmp" "$PALWORLD_ACTIVE_MANIFEST_FILE"
+  log "Recorded active Linux manifest: $downloaded_manifest"
+}
+
 exec 8>"$PALWORLD_UPDATE_LOCK"
 flock -w 300 8 || die "Timed out waiting for another update operation."
 
@@ -131,6 +153,7 @@ fi
 
 pending_file="$PALWORLD_UPDATER_STATE_DIR/pending-release"
 if [[ ! -s "$pending_file" ]]; then
+  record_active_manifest
   if ! is_true "$restart_always"; then
     log "Maintenance finished: the installed release is already current."
     exit 0
@@ -203,5 +226,6 @@ if is_true "$was_active" || is_true "$PALWORLD_UPDATE_START_IF_STOPPED" \
   start_and_verify
 fi
 
+record_active_manifest
 trap - EXIT
 log "Palworld maintenance update complete."

@@ -1,0 +1,32 @@
+[Unit]
+Description=Detect and safely apply new Palworld Steam builds
+Documentation=https://github.com/Love0118/Palworld-Oracle
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/palworld/palworld.env
+LoadCredential=admin-password:/etc/palworld/credentials/admin-password
+ExecStart=/usr/local/lib/palworld-oracle/scripts/update-watch.sh
+TimeoutStartSec=2h
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+ProtectClock=yes
+ProtectHostname=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/palworld-updater /var/lib/palworld-discord

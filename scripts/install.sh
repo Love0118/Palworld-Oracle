@@ -154,6 +154,8 @@ usermod --gid palworld-discord \
   --shell /usr/sbin/nologin \
   --groups '' \
   palworld-discord
+install -d -o palworld-discord -g palworld-discord -m 0700 \
+  /var/lib/palworld-discord
 # Older development installs briefly granted this account supplementary groups.
 # Remove them so the backup reader cannot access REST credentials or locks.
 gpasswd --delete "$PALWORLD_BACKUP_USER" "$PALWORLD_GROUP" >/dev/null 2>&1 || true
@@ -305,6 +307,7 @@ systemctl enable --now \
   palworld-escape.path \
   palworld-save-slot.path \
   palworld-healthcheck.timer \
+  palworld-update-watch.timer \
   palworld-maintenance-restart.path \
   palworld-maintenance-restart.timer
 

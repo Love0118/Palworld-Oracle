@@ -123,6 +123,7 @@ if [[ "${PALWORLD_RUN_ROOT_TESTS:-0}" == 1 ]]; then
   sudo -n ./tests/integration_release.sh
   sudo -n ./tests/maintenance_restart.sh
   sudo -n ./tests/profile_transaction.sh
+  sudo -n ./tests/update_watch.sh
 fi
 
 printf 'All checks passed.\n'

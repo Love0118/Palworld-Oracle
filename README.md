@@ -12,7 +12,7 @@ ARM64 네이티브 DepotDownloader가 게임 파일을 받고, Box64 DynaRec이 
 - Box64 `v0.4.4`, DepotDownloader `3.4.0` 기본 고정
 - 실행 중인 릴리스와 다운로드 작업공간 분리
 - 정상 저장/종료 후 원자적 릴리스 전환
-- REST 상태 검사, 수동 cold backup, 한국시간 05:00 업데이트 확인·재기동
+- REST 상태 검사, 수동 cold backup, 5분 주기 업데이트 감지, 한국시간 05:00 정기 재기동
 - 등록된 Discord 서버의 모든 채널에서 사용하는 상태·재기동 slash command
 - ARM64 네이티브 C++ 성능 관측과 Prometheus textfile
 
@@ -32,7 +32,7 @@ sudo ./scripts/install.sh
 2. 전용 `palworld`, `palworld-updater`, `palworld-backup` 계정을 만듭니다.
 3. 현재 CPU에 맞춰 Box64를 빌드합니다.
 4. ARM64 DepotDownloader와 첫 Palworld 릴리스를 설치합니다.
-5. 백업·상태 확인·05:00 KST 재기동 timer를 활성화합니다. 게임 서비스와 Discord 봇은 구성이 끝날 때까지 활성화하지 않습니다.
+5. 백업·상태 확인·자동 업데이트 감지·05:00 KST 재기동 timer를 활성화합니다. 게임 서비스와 Discord 봇은 구성이 끝날 때까지 활성화하지 않습니다.
 
 관리자 비밀번호와 기본 서버 정보를 설정합니다. 비밀번호는 명령행 인수에 넣지 않고 대화형으로 입력합니다.
 
@@ -110,6 +110,12 @@ Discord에서 `/pal status`, 업데이트 포함 `/pal restart`, 버그 복구�
 ```
 
 업데이트는 worktree를 먼저 갱신하고 변경된 경우에만 새 릴리스를 만듭니다. 이후 서버를 저장·종료하고 cold backup을 만든 다음 `current` 심볼릭 링크를 원자적으로 전환합니다. 실행 중인 파일을 덮어쓰지 않습니다.
+
+Steam 감시기는 5분마다 다운로드 없이 Linux depot 매니페스트만 확인합니다. 새
+매니페스트가 2회 연속 확인되면 Discord 로그 채널과 게임 안에 알리고 10분의
+유예 시간 뒤 기존 안전 업데이트 절차를 실행합니다. 실패 시 한 시간 동안 같은
+매니페스트의 재시도를 제한합니다. 이 동작과 별개로 매일 05:00 KST의 상태 유지용
+업데이트 확인·재기동은 계속 실행됩니다.
 
 자동 6시간 cold backup은 사용하지 않습니다. `palworldctl backup`을 직접
 실행하거나 업데이트 직전 백업이 필요할 때만 서버를 정상 종료해 일관된

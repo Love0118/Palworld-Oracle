@@ -20,6 +20,7 @@ require_command xargs
 
 worktree="$PALWORLD_UPDATER_STATE_DIR/worktree"
 pending_file="$PALWORLD_UPDATER_STATE_DIR/pending-release"
+downloaded_manifest_file="$PALWORLD_UPDATER_STATE_DIR/downloaded-linux-manifest"
 lock_file="$PALWORLD_UPDATER_STATE_DIR/.download.lock"
 install -d -m 0750 "$worktree" "$PALWORLD_STAGING_DIR"
 
@@ -33,6 +34,15 @@ log "Updating the isolated Palworld worktree app=$PALWORLD_APP_ID"
   -os linux \
   -osarch 64 \
   -validate
+
+linux_manifest_file="$(find "$worktree/.DepotDownloader" -maxdepth 1 -type f \
+  -name '2394012_*.manifest' -printf '%T@ %f\n' \
+  | LC_ALL=C sort -n | tail -n 1 | cut -d' ' -f2-)"
+[[ "$linux_manifest_file" =~ ^2394012_([0-9]+)\.manifest$ ]] \
+  || die "Could not identify the active Palworld Linux manifest."
+downloaded_manifest="${BASH_REMATCH[1]}"
+printf '%s\n' "$downloaded_manifest" > "$downloaded_manifest_file.tmp"
+mv -f "$downloaded_manifest_file.tmp" "$downloaded_manifest_file"
 
 shipping_binary="$worktree/Pal/Binaries/Linux/PalServer-Linux-Shipping"
 legacy_binary="$worktree/Pal/Binaries/Linux/PalServer-Linux-Test"
@@ -95,6 +105,8 @@ install -d -m 0750 "$stage_dir"
 
 log "Creating staged release $release_id"
 cp -a --reflink=auto "$worktree/." "$stage_dir/"
+
+printf '%s\n' "$downloaded_manifest" > "$stage_dir/.palworld-oracle-linux-manifest"
 
 stage_saved="$stage_dir/Pal/Saved"
 if [[ -L "$stage_saved" ]]; then

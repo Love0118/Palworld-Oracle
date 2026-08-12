@@ -38,6 +38,7 @@ RESTART_REQUEST_PATH = Path("/run/palworld-discord/restart.request")
 ESCAPE_REQUEST_PATH = Path("/run/palworld-discord/escape.request")
 SAVE_SLOT_REQUEST_PATH = Path("/run/palworld-discord/save-slot.request")
 SAVE_SLOT_STATUS_PATH = Path("/var/lib/palworld-discord/save-slots.status")
+UPDATE_EVENT_PATH = Path("/var/lib/palworld-discord/update-event")
 LOG_CHANNEL_PATH = Path("/var/lib/palworld-discord/log-channel-id")
 OPERATOR_ROLE_PATH = Path("/var/lib/palworld-discord/operator-role-id")
 OPERATOR_ROLE_NAME = "Palworld 명령어"
@@ -47,6 +48,7 @@ PLAYER_SNAPSHOT_MAX_BYTES = 16 * 1024
 PLAYER_DIRECTORY_MAX_BYTES = 16 * 1024
 SAVE_SLOT_COUNT = 10
 SAVE_SLOT_STATUS_MAX_BYTES = 1024
+UPDATE_EVENT_MAX_BYTES = 4096
 
 
 def required_snowflake(name: str) -> int:
@@ -345,6 +347,71 @@ class SaveSlotStatus:
     states: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class UpdateEvent:
+    event: str
+    manifest: str
+    grace_seconds: int
+    timestamp: int
+    detail: str
+    inode: int
+
+
+def read_update_event(path: Path) -> UpdateEvent:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("update event is not a regular file")
+        if metadata.st_size > UPDATE_EVENT_MAX_BYTES:
+            raise ValueError("update event exceeds the size limit")
+        payload = os.read(descriptor, UPDATE_EVENT_MAX_BYTES + 1)
+    finally:
+        os.close(descriptor)
+
+    lines = payload.decode("ascii").splitlines()
+    if len(lines) != 6 or lines[0] != "PALWORLD_UPDATE_EVENT_V1":
+        raise ValueError("update event header is invalid")
+    values: dict[str, str] = {}
+    for line in lines[1:]:
+        key, separator, value = line.partition("=")
+        if not separator or key in values:
+            raise ValueError("update event entry is invalid")
+        values[key] = value
+    if set(values) != {
+        "event",
+        "manifest",
+        "grace_seconds",
+        "timestamp",
+        "detail_b64",
+    }:
+        raise ValueError("update event fields are invalid")
+    event = values["event"]
+    if event not in {"detected", "starting", "completed", "failed"}:
+        raise ValueError("update event type is invalid")
+    if not values["manifest"].isdecimal():
+        raise ValueError("update event manifest is invalid")
+    if not values["grace_seconds"].isdecimal() or not values["timestamp"].isdecimal():
+        raise ValueError("update event numeric field is invalid")
+    try:
+        detail = base64.b64decode(values["detail_b64"], validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeError) as error:
+        raise ValueError("update event detail is invalid") from error
+    if not detail or len(detail) > 1000:
+        raise ValueError("update event detail is outside the size limit")
+    return UpdateEvent(
+        event=event,
+        manifest=values["manifest"],
+        grace_seconds=int(values["grace_seconds"]),
+        timestamp=int(values["timestamp"]),
+        detail=detail,
+        inode=metadata.st_ino,
+    )
+
+
 def read_save_slot_status(path: Path) -> SaveSlotStatus:
     descriptor = os.open(
         path,
@@ -604,6 +671,7 @@ class PalworldClient(discord.Client):
         self.log_channel_id: int | None = None
         self.operator_role_id: int | None = None
         self.player_watch_task: asyncio.Task[None] | None = None
+        self.update_event_task: asyncio.Task[None] | None = None
         self.known_player_ids: frozenset[str] | None = None
         self.known_server_uptime: float | None = None
         self.player_snapshot_error: str | None = None
@@ -695,6 +763,11 @@ class PalworldClient(discord.Client):
                 self.watch_player_connections(),
                 name="palworld-player-connection-watch",
             )
+        if self.update_event_task is None or self.update_event_task.done():
+            self.update_event_task = asyncio.create_task(
+                self.watch_update_events(),
+                name="palworld-update-event-watch",
+            )
 
     async def on_guild_role_delete(self, role: discord.Role) -> None:
         if role.guild.id != GUILD_ID or role.id != self.operator_role_id:
@@ -710,13 +783,94 @@ class PalworldClient(discord.Client):
             )
 
     async def close(self) -> None:
-        task = self.player_watch_task
+        tasks = [self.player_watch_task, self.update_event_task]
         self.player_watch_task = None
-        if task is not None and task is not asyncio.current_task():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        self.update_event_task = None
+        for task in tasks:
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
         await super().close()
+
+    def log_channel(self) -> discord.TextChannel:
+        if self.log_channel_id is None:
+            raise RuntimeError("Discord log channel is not configured")
+        guild = self.get_guild(GUILD_ID)
+        if guild is None:
+            raise RuntimeError("configured guild is unavailable")
+        channel = guild.get_channel(self.log_channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            raise RuntimeError("configured log channel is unavailable")
+        member = guild.me
+        if member is None:
+            raise RuntimeError("bot guild membership is unavailable")
+        permissions = channel.permissions_for(member)
+        if not (
+            permissions.view_channel
+            and permissions.send_messages
+            and permissions.embed_links
+        ):
+            raise RuntimeError("configured log channel lacks required permissions")
+        return channel
+
+    async def send_update_event(self, event: UpdateEvent) -> None:
+        titles = {
+            "detected": "Palworld 업데이트 감지",
+            "starting": "Palworld 자동 업데이트 시작",
+            "completed": "Palworld 자동 업데이트 완료",
+            "failed": "Palworld 자동 업데이트 실패",
+        }
+        colours = {
+            "detected": discord.Colour.orange(),
+            "starting": discord.Colour.blue(),
+            "completed": discord.Colour.green(),
+            "failed": discord.Colour.red(),
+        }
+        channel = self.log_channel()
+        embed = discord.Embed(
+            title=titles[event.event],
+            description=discord.utils.escape_mentions(event.detail),
+            colour=colours[event.event],
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Linux 매니페스트", value=f"`{event.manifest}`")
+        if event.grace_seconds:
+            embed.add_field(
+                name="유예 시간",
+                value=f"{math.ceil(event.grace_seconds / 60)}분",
+            )
+        await asyncio.wait_for(
+            channel.send(
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions.none(),
+            ),
+            timeout=10,
+        )
+
+    async def watch_update_events(self) -> None:
+        last_error: str | None = None
+        while not self.is_closed():
+            try:
+                event = read_update_event(UPDATE_EVENT_PATH)
+                await self.send_update_event(event)
+                current = UPDATE_EVENT_PATH.stat(follow_symlinks=False)
+                if current.st_ino == event.inode:
+                    UPDATE_EVENT_PATH.unlink(missing_ok=True)
+                LOGGER.info(
+                    "update_event delivered event=%s manifest=%s",
+                    event.event,
+                    event.manifest,
+                )
+                last_error = None
+            except FileNotFoundError:
+                last_error = None
+            except (discord.HTTPException, OSError, RuntimeError, UnicodeError, ValueError) as error:
+                error_key = type(error).__name__
+                if last_error != error_key:
+                    LOGGER.warning("update event delivery pending (%s)", error_key)
+                    last_error = error_key
+            await asyncio.sleep(2)
 
     async def send_player_presence_log(
         self, player_id: str, current_players: int, connected: bool
@@ -731,22 +885,7 @@ class PalworldClient(discord.Client):
         if self.log_channel_id is None:
             return
         try:
-            guild = self.get_guild(GUILD_ID)
-            if guild is None:
-                raise RuntimeError("configured guild is unavailable")
-            channel = guild.get_channel(self.log_channel_id)
-            if not isinstance(channel, discord.TextChannel):
-                raise RuntimeError("configured log channel is unavailable")
-            member = guild.me
-            if member is None:
-                raise RuntimeError("bot guild membership is unavailable")
-            permissions = channel.permissions_for(member)
-            if not (
-                permissions.view_channel
-                and permissions.send_messages
-                and permissions.embed_links
-            ):
-                raise RuntimeError("configured log channel lacks required permissions")
+            channel = self.log_channel()
 
             safe_player_id = discord.utils.escape_markdown(
                 discord.utils.escape_mentions(player_id)

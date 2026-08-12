@@ -67,7 +67,10 @@ done
 [[ -n "$destination" ]]
 mkdir -p "$destination/Pal/Binaries/Linux" \
   "$destination/Pal/Plugins/Sentry/Binaries/Linux" \
+  "$destination/.DepotDownloader" \
   "$destination/linux64"
+printf 'fake manifest\n' \
+  > "$destination/.DepotDownloader/2394012_7750626597239103317.manifest"
 if [[ ! -f "$destination/Pal/Binaries/Linux/PalServer-Linux-Shipping" ]]; then
   printf 'fake x86_64 server\n' > "$destination/Pal/Binaries/Linux/PalServer-Linux-Shipping"
 fi
@@ -110,9 +113,13 @@ PALWORLD_CONFIG_FILE="$config_file" "$PROJECT_ROOT/scripts/activate-release.sh"
 runuser -u "$test_user" -- test -r "$saved_root/Config/LinuxServer/PalWorldSettings.ini"
 [[ -f "$runtime_root/current/Pal/Binaries/Linux/steamclient.so" ]]
 [[ -x "$runtime_root/current/Pal/Plugins/Sentry/Binaries/Linux/crashpad_handler" ]]
+[[ "$(< "$runtime_root/current/.palworld-oracle-linux-manifest")" \
+  == 7750626597239103317 ]]
 
 PALWORLD_CONFIG_FILE="$config_file" "$PROJECT_ROOT/scripts/update-server.sh"
 [[ ! -e "$updater_root/pending-release" ]]
+[[ "$(< "$updater_root/downloaded-linux-manifest")" \
+  == 7750626597239103317 ]]
 
 PALWORLD_CONFIG_FILE="$config_file" PALWORLD_MAINTENANCE_LOCK_HELD=true \
   "$PROJECT_ROOT/scripts/backup.sh"

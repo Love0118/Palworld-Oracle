@@ -81,6 +81,9 @@ load_config() {
   : "${PALWORLD_SAVE_SLOT_STATUS_FILE:=/var/lib/palworld-discord/save-slots.status}"
   : "${PALWORLD_MAINTENANCE_LOCK:=/var/lib/palworld-admin/maintenance.lock}"
   : "${PALWORLD_UPDATE_LOCK:=/var/lib/palworld-admin/update.lock}"
+  : "${PALWORLD_ACTIVE_MANIFEST_FILE:=$PALWORLD_ADMIN_STATE_DIR/active-linux-manifest}"
+  : "${PALWORLD_UPDATE_WATCH_STATE_DIR:=$PALWORLD_UPDATER_STATE_DIR/update-watch}"
+  : "${PALWORLD_UPDATE_EVENT_FILE:=/var/lib/palworld-discord/update-event}"
   : "${PALWORLD_APP_ID:=2394010}"
   : "${PALWORLD_PORT:=8211}"
   : "${PALWORLD_PLAYERS:=16}"
@@ -103,6 +106,9 @@ load_config() {
   : "${PALWORLD_RSS_RESTART_MIB:=0}"
   : "${PALWORLD_RESTART_COOLDOWN_SECONDS:=1800}"
   : "${PALWORLD_UPDATE_START_IF_STOPPED:=false}"
+  : "${PALWORLD_UPDATE_CONFIRMATIONS:=2}"
+  : "${PALWORLD_UPDATE_GRACE_SECONDS:=600}"
+  : "${PALWORLD_UPDATE_RETRY_COOLDOWN_SECONDS:=3600}"
   : "${PALWORLD_ALLOW_UNSAFE_PATHS:=false}"
   : "${PALWORLD_POST_START_GRACE_SECONDS:=20}"
   : "${PALWORLD_POST_START_TIMEOUT_SECONDS:=120}"
@@ -170,6 +176,9 @@ validate_config_paths() {
   validate_descendant_path PALWORLD_SAVE_SLOT_STATUS_FILE "$PALWORLD_SAVE_SLOT_STATUS_FILE" /var/lib/palworld-discord
   validate_descendant_path PALWORLD_MAINTENANCE_LOCK "$PALWORLD_MAINTENANCE_LOCK" /var/lib
   validate_descendant_path PALWORLD_UPDATE_LOCK "$PALWORLD_UPDATE_LOCK" /var/lib
+  validate_descendant_path PALWORLD_ACTIVE_MANIFEST_FILE "$PALWORLD_ACTIVE_MANIFEST_FILE" /var/lib
+  validate_descendant_path PALWORLD_UPDATE_WATCH_STATE_DIR "$PALWORLD_UPDATE_WATCH_STATE_DIR" /var/lib
+  validate_descendant_path PALWORLD_UPDATE_EVENT_FILE "$PALWORLD_UPDATE_EVENT_FILE" /var/lib/palworld-discord
   validate_descendant_path PALWORLD_ADMIN_PASSWORD_FILE "$PALWORLD_ADMIN_PASSWORD_FILE" /etc/palworld
   validate_descendant_path PALWORLD_OBSERVER_OUTPUT "$PALWORLD_OBSERVER_OUTPUT" /var/lib
   validate_descendant_path PALWORLD_OBSERVER_PLAYERS_OUTPUT "$PALWORLD_OBSERVER_PLAYERS_OUTPUT" /var/lib
@@ -197,7 +206,10 @@ validate_config_paths() {
     && "$(normalized_path "$PALWORLD_SAVE_SLOT_STATUS_FILE")" == /var/lib/palworld-discord/save-slots.status \
     && "$(normalized_path "$PALWORLD_MAINTENANCE_LOCK")" == /var/lib/palworld-admin/maintenance.lock \
     && "$(normalized_path "$PALWORLD_UPDATE_LOCK")" == /var/lib/palworld-admin/update.lock \
+    && "$(normalized_path "$PALWORLD_ACTIVE_MANIFEST_FILE")" == /var/lib/palworld-admin/active-linux-manifest \
     && "$(normalized_path "$PALWORLD_UPDATER_STATE_DIR")" == /var/lib/palworld-updater \
+    && "$(normalized_path "$PALWORLD_UPDATE_WATCH_STATE_DIR")" == /var/lib/palworld-updater/update-watch \
+    && "$(normalized_path "$PALWORLD_UPDATE_EVENT_FILE")" == /var/lib/palworld-discord/update-event \
     && "$(normalized_path "$PALWORLD_ADMIN_PASSWORD_FILE")" == /etc/palworld/credentials/admin-password \
     && "$(normalized_path "$PALWORLD_OBSERVER_OUTPUT")" == /var/lib/palworld-observer/palworld.prom \
     && "$(normalized_path "$PALWORLD_OBSERVER_PLAYERS_OUTPUT")" == /var/lib/palworld-observer/players.snapshot \
