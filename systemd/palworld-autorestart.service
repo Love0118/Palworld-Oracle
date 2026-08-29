@@ -1,0 +1,26 @@
+[Unit]
+Description=Apply Palworld automatic-start setting requested from Discord
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PALWORLD_AUTORESTART_REQUEST_USER=palworld-discord
+ExecStart=/usr/local/lib/palworld-oracle/scripts/set-autorestart.sh /run/palworld-discord/autorestart.request
+TimeoutStartSec=10min
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+ReadWritePaths=-/run/palworld-discord

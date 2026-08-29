@@ -57,6 +57,7 @@ updater worktree ── fingerprint ── staging release
 - `palworld-healthcheck.service/.timer`: 프로세스와 REST liveness
 - `palworld-observer.service`: ARM64 네이티브 장기 성능 관측
 - `palworld-discord.service`: 길드·채널·역할 제한 Discord slash command
+- `palworld-autorestart.path/.service`: Discord `/autorestart on|off`의 제한된 자동 시작 제어 요청 처리
 - `palworld-recover.service`: 연속 장애 시 cooldown 복구
 - `palworld-update.service`: 수동 업데이트의 격리 다운로드와 원자적 승격
 - `palworld-update-watch.service/.timer`: 5분마다 Steam Linux 매니페스트만 확인하고, 변경을 2회 확인한 뒤 사전 공지·안전 업데이트 실행

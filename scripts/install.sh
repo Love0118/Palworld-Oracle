@@ -304,6 +304,7 @@ if ! is_true "$skip_download"; then
 fi
 systemctl enable --now \
   palworld-firewall.service \
+  palworld-autorestart.path \
   palworld-escape.path \
   palworld-save-slot.path \
   palworld-healthcheck.timer \

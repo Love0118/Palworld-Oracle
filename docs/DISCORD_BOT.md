@@ -8,6 +8,8 @@ Discord 봇은 등록한 Discord 서버에서 다음 slash command를 제공합�
 - `/pal save-slots`: 1~10번 월드 저장 슬롯의 상태 확인
 - `/pal save-slot slot:1번 슬롯 confirm:True`: 선택한 월드 저장 슬롯으로 안전하게 전환하고 서버 실행
 - `/pal log-channel channel:#채널`: 관리 명령 기록 채널 지정
+- `/autorestart on`: 서버 기동과 자동 시작·복구·업데이트 감지·정기 재기동 활성화
+- `/autorestart off`: 서버 정상 종료와 자동 시작·복구·업데이트 감지·정기 재기동 비활성화
 
 Palworld 공식 REST metrics에는 별도 TPS 항목이 없으므로 상태 명령은 공식
 `serverfps`를 **TPS 대체 지표**로 명시해 표시합니다. 봇은 네이티브 observer가
@@ -42,7 +44,8 @@ sudo palworldctl discord configure \
 
 봇이 처음 접속하면 권한이 없는 `Palworld 명령어` 역할을 자동으로 하나 만듭니다. 서버
 관리자가 이 역할을 사용할 사람에게 Discord에서 **수동으로 지급**하세요. 해당 역할을
-가진 사용자는 등록된 Discord 서버의 모든 채널에서 모든 `/pal` 명령을 실행할 수
+가진 사용자는 등록된 Discord 서버의 모든 채널에서 모든 `/pal` 및 `/autorestart`
+명령을 실행할 수
 있습니다. 서버 소유자와 Discord Administrator는 역할이 없어도 비상 복구를 위해
 명령을 실행할 수 있습니다. 역할을 삭제하면 봇이 다시 만듭니다.
 
@@ -134,6 +137,18 @@ Steam 또는 네트워크 장애로 업데이트 확인 자체가 실패해도 �
 업데이트 검사를 시작하므로 큰 다운로드가 있으면 실제 게임 프로세스 재기동은
 다운로드와 검증이 끝난 뒤 시작됩니다. 호스트가 05:00에 꺼져 있었다면
 `Persistent=true` 정책에 따라 다음 부팅 시 누락된 작업을 한 번 수행합니다.
+
+## 자동 시작 제어
+
+`/autorestart on`은 `palworld.service`를 부팅 시 자동 시작하도록 설정하고 즉시
+기동합니다. 동시에 health check·자동 복구, 5분 단위 업데이트 감지, 매일 05:00 KST
+정기 재기동을 다시 활성화합니다.
+
+`/autorestart off`은 위 자동 경로와 진행 중인 복구·업데이트·정기 재기동 작업을
+멈춘 뒤 서버를 정상 종료하고 부팅 시 자동 시작도 해제합니다. Discord의 자동 시작
+요청 감시는 남겨 두므로 서버가 꺼진 뒤에도 `/autorestart on`으로 다시 기동할 수
+있습니다. 두 명령 모두 `Palworld 명령어` 역할(또는 서버 소유자/Administrator)이
+필요하며, 일반 `/pal restart` 요청이 대기 중이면 off 처리에서 함께 취소됩니다.
 
 ## 상태값과 권한 경계
 

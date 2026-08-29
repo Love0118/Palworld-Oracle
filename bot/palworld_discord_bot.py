@@ -32,9 +32,11 @@ from palworld_status import (
 LOGGER = logging.getLogger("palworld-discord")
 PALWORLD_UNIT = "palworld.service"
 MAINTENANCE_UNIT = "palworld-maintenance-restart.service"
+AUTORESTART_UNIT = "palworld-autorestart.service"
 SYSTEMCTL = "/usr/bin/systemctl"
 READY_PATH = Path("/run/palworld-discord/ready")
 RESTART_REQUEST_PATH = Path("/run/palworld-discord/restart.request")
+AUTORESTART_REQUEST_PATH = Path("/run/palworld-discord/autorestart.request")
 ESCAPE_REQUEST_PATH = Path("/run/palworld-discord/escape.request")
 SAVE_SLOT_REQUEST_PATH = Path("/run/palworld-discord/save-slot.request")
 SAVE_SLOT_STATUS_PATH = Path("/var/lib/palworld-discord/save-slots.status")
@@ -979,7 +981,11 @@ class PalworldClient(discord.Client):
 
 client = PalworldClient()
 pal = app_commands.Group(name="pal", description="Palworld 서버 관리")
+autorestart = app_commands.Group(
+    name="autorestart", description="Palworld 서버 자동 시작과 기동을 관리합니다."
+)
 restart_in_progress = False
+autorestart_in_progress = False
 escape_in_progress = False
 save_slot_in_progress = False
 
@@ -1191,6 +1197,52 @@ def write_save_slot_request(action: str, slot: int | None = None) -> None:
             pass
 
 
+def write_autorestart_request(action: str) -> None:
+    """Atomically publish one bounded automatic-start control request."""
+    if action not in {"on", "off"}:
+        raise ValueError("automatic-start action is invalid")
+
+    temporary = AUTORESTART_REQUEST_PATH.with_name(
+        f".autorestart.{os.getpid()}.{secrets.token_hex(8)}"
+    )
+    payload = f"PALWORLD_AUTORESTART_REQUEST_V1\naction={action}\n".encode("ascii")
+    published = False
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC,
+            0o600,
+        )
+        try:
+            written = 0
+            while written < len(payload):
+                count = os.write(descriptor, payload[written:])
+                if count == 0:
+                    raise OSError("could not write automatic-start request")
+                written += count
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+        # link(2) is an atomic no-replace publish, so two commands cannot
+        # silently replace each other's requested state.
+        os.link(temporary, AUTORESTART_REQUEST_PATH, follow_symlinks=False)
+        published = True
+        directory = os.open(
+            AUTORESTART_REQUEST_PATH.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC,
+        )
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+        if not published:
+            # A request already at the fixed path belongs to another command.
+            pass
+
+
 async def request_save_slot(action: str, slot: int | None = None) -> str:
     """Publish a request and wait for its systemd job outcome."""
     before = await systemctl_properties(
@@ -1222,6 +1274,38 @@ async def request_save_slot(action: str, slot: int | None = None) -> str:
 
     if not seen_start:
         SAVE_SLOT_REQUEST_PATH.unlink(missing_ok=True)
+    return "pending"
+
+
+async def request_autorestart(action: str) -> str:
+    """Publish an automatic-start request and wait for its systemd outcome."""
+    before = await systemctl_properties(
+        AUTORESTART_UNIT, "ExecMainStartTimestampMonotonic"
+    )
+    before_start = int(before.get("ExecMainStartTimestampMonotonic", "0") or 0)
+    write_autorestart_request(action)
+
+    deadline = asyncio.get_running_loop().time() + COMMAND_TIMEOUT
+    seen_start = False
+    while asyncio.get_running_loop().time() < deadline:
+        state = await systemctl_properties(
+            AUTORESTART_UNIT,
+            "ActiveState",
+            "Result",
+            "ExecMainStartTimestampMonotonic",
+        )
+        start_timestamp = int(
+            state.get("ExecMainStartTimestampMonotonic", "0") or 0
+        )
+        if start_timestamp > before_start:
+            seen_start = True
+        active_state = state.get("ActiveState", "unknown")
+        if seen_start and active_state == "failed":
+            return "failed"
+        if seen_start and active_state == "inactive":
+            return "success" if state.get("Result") == "success" else "failed"
+        await asyncio.sleep(2)
+
     return "pending"
 
 
@@ -1446,6 +1530,110 @@ async def restart_command(
         )
     finally:
         restart_in_progress = False
+
+
+async def run_autorestart_command(
+    interaction: discord.Interaction, action: str
+) -> None:
+    global autorestart_in_progress
+    command_name = f"/autorestart {action}"
+    journal_command_invocation(interaction, command_name)
+    if not await interaction_in_configured_guild(interaction, command_name):
+        return
+    if autorestart_in_progress:
+        await interaction.response.send_message(
+            "이미 자동 시작 설정 변경을 처리 중입니다.", ephemeral=True
+        )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "이미 다른 자동 시작 설정 변경이 진행 중입니다.",
+        )
+        return
+
+    autorestart_in_progress = True
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        outcome = await request_autorestart(action)
+        if outcome == "success":
+            if action == "on":
+                response = (
+                    "서버를 기동하고 자동 시작, 자동 복구, 업데이트 감지와 "
+                    "매일 정기 재기동을 활성화했습니다."
+                )
+                detail = "서버 기동과 자동 관리 경로를 활성화했습니다."
+            else:
+                response = (
+                    "서버를 정상 종료하고 자동 시작, 자동 복구, 업데이트 감지, "
+                    "정기 재기동과 Discord 재기동 요청 감시를 비활성화했습니다. "
+                    "다시 켜려면 /autorestart on을 사용하세요."
+                )
+                detail = "서버를 종료하고 자동 관리 경로를 비활성화했습니다."
+            await interaction.edit_original_response(content=response)
+            await audit_command(interaction, command_name, "완료", detail)
+        elif outcome == "pending":
+            await interaction.edit_original_response(
+                content=(
+                    "자동 시작 설정 변경이 계속 진행 중입니다. 잠시 후 "
+                    "/pal status로 확인해 주세요."
+                )
+            )
+            await audit_command(
+                interaction,
+                command_name,
+                "진행 중",
+                "자동 시작 설정 변경이 명령 응답 시간보다 오래 걸립니다.",
+            )
+        else:
+            await interaction.edit_original_response(
+                content="자동 시작 설정 변경에 실패했습니다. 서버 로그를 확인해 주세요."
+            )
+            await audit_command(
+                interaction,
+                command_name,
+                "실패",
+                "자동 시작 설정 변경 서비스가 실패했습니다.",
+            )
+    except FileExistsError:
+        if interaction.response.is_done():
+            await interaction.edit_original_response(
+                content="이미 자동 시작 설정 변경 요청이 대기 중입니다."
+            )
+        await audit_command(
+            interaction,
+            command_name,
+            "거부됨",
+            "이미 다른 자동 시작 설정 변경 요청이 대기 중입니다.",
+        )
+    except (OSError, RuntimeError, ValueError, asyncio.TimeoutError) as error:
+        LOGGER.error("could not change automatic-start setting: %s", error)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(
+                content="자동 시작 설정 변경 서비스를 호출하지 못했습니다."
+            )
+        await audit_command(
+            interaction,
+            command_name,
+            "실패",
+            "자동 시작 설정 변경 요청을 처리하지 못했습니다.",
+        )
+    finally:
+        autorestart_in_progress = False
+
+
+@autorestart.command(
+    name="on", description="Palworld 서버와 자동 시작·복구·업데이트 관리를 켭니다."
+)
+async def autorestart_on_command(interaction: discord.Interaction) -> None:
+    await run_autorestart_command(interaction, "on")
+
+
+@autorestart.command(
+    name="off", description="Palworld 서버를 종료하고 자동 시작·복구·업데이트 관리를 끕니다."
+)
+async def autorestart_off_command(interaction: discord.Interaction) -> None:
+    await run_autorestart_command(interaction, "off")
 
 
 def format_save_slot_status(status: SaveSlotStatus) -> str:
@@ -1871,6 +2059,7 @@ async def log_channel_command(
 
 
 client.tree.add_command(pal)
+client.tree.add_command(autorestart)
 
 
 def main() -> None:

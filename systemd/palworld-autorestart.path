@@ -1,0 +1,9 @@
+[Unit]
+Description=Accept fixed Palworld automatic-start requests from the Discord bot
+
+[Path]
+PathExists=/run/palworld-discord/autorestart.request
+Unit=palworld-autorestart.service
+
+[Install]
+WantedBy=multi-user.target
