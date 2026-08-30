@@ -22,5 +22,5 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 RestrictNamespaces=yes
 RestrictAddressFamilies=AF_UNIX
-CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
 ReadWritePaths=-/run/palworld-discord

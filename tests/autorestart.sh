@@ -7,6 +7,8 @@ set -Eeuo pipefail
 }
 
 project_root="$(cd -- "$(dirname -- "$0")/.." && pwd -P)"
+rg -Fx 'CapabilityBoundingSet=CAP_DAC_OVERRIDE' \
+  "$project_root/systemd/palworld-autorestart.service" >/dev/null
 test_root="$(mktemp -d /tmp/palworld-autorestart.XXXXXXXX)"
 
 cleanup() {
