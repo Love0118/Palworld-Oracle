@@ -2,7 +2,8 @@
 Description=Check Steam for Palworld server updates every five minutes
 
 [Timer]
-OnBootSec=2min
+# Schedule a fresh first check whenever automatic management is enabled again.
+OnActiveSec=2min
 OnUnitInactiveSec=5min
 AccuracySec=30s
 Persistent=true
