@@ -1533,10 +1533,9 @@ async def restart_command(
 
 
 async def run_autorestart_command(
-    interaction: discord.Interaction, action: str
+    interaction: discord.Interaction, action: str, command_name: str
 ) -> None:
     global autorestart_in_progress
-    command_name = f"/autorestart {action}"
     journal_command_invocation(interaction, command_name)
     if not await interaction_in_configured_guild(interaction, command_name):
         return
@@ -1567,7 +1566,7 @@ async def run_autorestart_command(
                 response = (
                     "서버를 정상 종료하고 자동 시작, 자동 복구, 업데이트 감지, "
                     "정기 재기동과 Discord 재기동 요청 감시를 비활성화했습니다. "
-                    "다시 켜려면 /autorestart on을 사용하세요."
+                    "다시 켜려면 /pal enable을 사용하세요."
                 )
                 detail = "서버를 종료하고 자동 관리 경로를 비활성화했습니다."
             await interaction.edit_original_response(content=response)
@@ -1622,18 +1621,32 @@ async def run_autorestart_command(
         autorestart_in_progress = False
 
 
+@pal.command(
+    name="enable", description="Palworld 서버를 켜고 자동 시작·복구·업데이트 관리를 활성화합니다."
+)
+async def enable_command(interaction: discord.Interaction) -> None:
+    await run_autorestart_command(interaction, "on", "/pal enable")
+
+
+@pal.command(
+    name="disable", description="Palworld 서버를 안전하게 종료하고 자동 시작·복구·업데이트 관리를 끕니다."
+)
+async def disable_command(interaction: discord.Interaction) -> None:
+    await run_autorestart_command(interaction, "off", "/pal disable")
+
+
 @autorestart.command(
     name="on", description="Palworld 서버와 자동 시작·복구·업데이트 관리를 켭니다."
 )
 async def autorestart_on_command(interaction: discord.Interaction) -> None:
-    await run_autorestart_command(interaction, "on")
+    await run_autorestart_command(interaction, "on", "/autorestart on")
 
 
 @autorestart.command(
     name="off", description="Palworld 서버를 종료하고 자동 시작·복구·업데이트 관리를 끕니다."
 )
 async def autorestart_off_command(interaction: discord.Interaction) -> None:
-    await run_autorestart_command(interaction, "off")
+    await run_autorestart_command(interaction, "off", "/autorestart off")
 
 
 def format_save_slot_status(status: SaveSlotStatus) -> str:

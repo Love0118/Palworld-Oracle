@@ -16,3 +16,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake ripgrep shellcheck
       - name: Validate scripts and settings editor
         run: PALWORLD_RUN_ROOT_TESTS=1 make check
+      - name: Test Discord server controls
+        run: |
+          python3 -m venv /tmp/palworld-discord-tests
+          /tmp/palworld-discord-tests/bin/pip install -r bot/requirements.txt
+          /tmp/palworld-discord-tests/bin/python tests/discord_commands.py
